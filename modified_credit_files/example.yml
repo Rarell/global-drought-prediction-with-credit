@@ -1,0 +1,569 @@
+# --------------------------------------------------------------------------------------------------------------------- #
+# This is an example yaml file that explains how to define, train, and use AI weather prediciton models in CREDIT
+# --------------------------------------------------------------------------------------------------------------------- #
+
+# TODO:
+#    Custom loss function that masks over Africa
+#    Consider rotations
+#    Get interp_pressure to work with rollout_to_netcdf
+#    Read docs on config file, and update config
+#    get model_summary.py to work
+
+# # Examine (in particular, why is column rain water < column snow water, and why is ET > PET?):
+# with Dataset('moisture_surface/total_column_snow_water_2018.nc', 'r') as nc:
+#     print(np.nanmin(nc.variables['tcsw']), np.nanmax(nc.variables['tcsw']), np.nanmean(nc.variables['tcsw']))
+# 
+# -8.526513e-14 398.45255 1.0072217
+# with Dataset('moisture_surface/total_column_rain_water_2018.nc', 'r') as nc:
+#     print(np.nanmin(nc.variables['tcrw']), np.nanmax(nc.variables['tcrw']), np.nanmean(nc.variables['tcrw']))
+# 
+# -2.1316282e-14 130.84753 0.16859835
+# with Dataset('moisture_surface/2m_dewpoint_temperature_2018.nc', 'r') as nc:
+#     print(np.nanmin(nc.variables['d2m']), np.nanmax(nc.variables['d2m']), np.nanmean(nc.variables['d2m']))
+# 
+# 191.81244 303.716 274.44513
+# with Dataset('potential_evaporation/potential_evaporation_2009.nc', 'r') as nc:
+#     print(np.nanmin(nc.variables['pev']), np.nanmax(nc.variables['pev']), np.nanmean(nc.variables['pev']))
+# 
+# -0.0007355528 9.019623e-05 -2.5783302e-05
+# with Dataset('evaporation/evaporation_2009.nc', 'r') as nc:
+#     print(np.nanmin(nc.variables['e']), np.nanmax(nc.variables['e']), np.nanmean(nc.variables['e']))
+# 
+# -0.0015566093 0.00026701365 -9.2349524e-05
+
+### TODO: Look into making $USER work
+### TODO: Find out how to make aliases and return to *levels, *heights (lat) and *width (lon) (Lines 378 - 394)
+
+### Commands: python ~/miles-credit/applications/train.py -c example.yml # Makes and trains model
+###           python ~/miles-credit/applications/model_summary.py -c example.yml # Shows model summary (currently post_conf.activate needs to be False)
+###           python ~/miles-credit/applications/rollout_to_netcdf.py -c example.yml # Makes predictions and saves to .nc files
+###           python ~/miles-credit/applications/rollout_metrics.py -c example.yml # Makes metrics; this may not be necessary as rollout_to_netcdf also produces metrics
+
+### Changes:
+##     train.py: L44 - 45, added lines to change dask scheduler to synchronous (turns off multithread processing); currently needed to avoid multithreading hanging the code
+##     distributed.py: L76 - 94: Added lines to ajdust world size based on number of allocated gpus
+##     datasets.era5_singlestep L210 & 214 (np.datetime64), 83 & 86 (.astype("datetime64[h]")) to prevent a mismatch datatype error
+##     datasets.era5_multistep L126 & 128 (.astype("datetime64[h]"))
+##     datasets.era5_multistep_batcher L1083 and 1084: .astype("datetime64[h]")
+##     datasets.era5_singlestep.py: L49, commented out a compact argument, as it isn't needed with scheduler = 'synchronous', but maybe needed if multiprocessing is turned back on
+##     interp.py: L28: added surface_geopotential_var to input variables to prevent 'unused keyword argument' errors when called in output.py
+##     interp.py: L168: added .squeeze remove a dimension error (pressure_grid was shape (1, lat, lon), and 2D was needed)
+##     output.py: L210 - 219: Placed these lines in an if block to prevent issues when interp_pressure is not used
+##     parser.py L861 - 862: Added lines to add a new argument in the "loss" section: use_regional_latitude_weights (determines wether to load 2D weights or original latitude weight loader)
+##     loss.py: L461 - 488: Added function to load 2D latitude weights, used for emphasizing regions
+##     loss.py: L611 - 614: Added if block in main class to check to use 2D latitude weights
+##     parser.py: L948 - 950: Added if block to check if len(train_years) > 2, and add to it if so (allows use of multiple ranges for train_years, e.g., 2000 - 2010 then 2014 - 2024)
+##     datasets.__init__.py: L122 - 125: Added if block to check if len(train_years) > 2, and add to it if so (loads multiple ranges for train_years, e.g., 2000 - 2010 and 2014 - 2024)
+##     model_summary.py: L36 - 40: Added lines to obtain MASTER_ADDR and MASTER_PORT for os.environ (also added accompaning imports)
+##     model_summary.py: L187: Added a line to obtain rank and world size for os.environ (COMMENT OUT WHEN NOT TESTING)
+##     model_summary.py: L162 - 166: Added lines to process config file, and ensure necessary parameters are added (such as inds for postblock; and added accompanying import)
+##     model_summary.py: L167-168: Added lines to incorporate config file for input shape rather than separate arguments
+
+## NOTE: model_summary.py is having issues with postblock (namely, when postblock is added, the summary() function has issues getting lengths from it because it is a dictionary)
+#  For now, added L169 to turn off the postblock when running model_summary.py
+
+## models.crossformer.py (using Upsampling):
+##     L72 - 76: Added nn.Upsample and nn.Conv2d (L76 was commented out)
+##     L80: num_residuals -> num_residuals-1
+##     L508 - 509: Added nn.Upsample for up_block4, and nn.Conv2d for conv_out (L512 - 514 were commented out)
+##     L556: Added conv_out to module structure
+
+### Print statements: 
+
+# the location to save your workspace, it will have 
+# (1) pbs script, (2) a copy of this config, (3) model weights, (4) training_log.csv
+# if save_loc does not exist, it will be created automatically
+save_loc: '/scratch/rarrell/test_credit/'
+seed: 1909 # random seeed
+
+data:
+    # upper-air variables, must be YEARLY zarr or nc with (time, level, latitude, longitude) dims
+    # files must have the listed variable names 
+    # upper-air variables will be normalized by the dataloader, users do not need to normalize them
+    variables: ['u','v','q_tot']
+    save_loc: '/ourdisk/hpc/ai2es/sedris/credit_datasets/upper_air*.zarr'
+    
+    # surface variables, must be YEARLY zarr or nc with (time, latitude, longitude) dims
+    # the time dimension MUST be the same as upper-air variables
+    # files must have the listed variable names
+    # surface variables will be normalized by the dataloader, users do not need to normalize them
+    surface_variables: ['tair', 'sp', 'tp', 'e', 'pev']
+    save_loc_surface: '/ourdisk/hpc/ai2es/sedris/credit_datasets/surface*.zarr'
+
+    # dynamic forcing variables, must be YEARLY zarr or nc with (time, latitude, longitude) dims
+    # the time dimension MUST be the same as upper-air variables
+    # files must have the listed variable names
+    # surface variables will be normalized by the dataloader, users do not need to normalize them
+    dynamic_forcing_variables: ['ssr']
+    save_loc_dynamic_forcing: '/ourdisk/hpc/ai2es/sedris/credit_datasets/dynamic*.zarr'
+
+    # diagnostic variables, must be YEARLY zarr or nc with (time, latitude, longitude) dims
+    # the time dimension MUST be the same as upper-air variables
+    # files must have the listed variable names 
+    # diagnostic variables will be normalized by the dataloader, users do not need to normalize them
+    diagnostic_variables: ['swvl1'] 
+    save_loc_diagnostic: '/ourdisk/hpc/ai2es/sedris/credit_datasets/diagnostic*.zarr'
+    
+    # periodic forcing variables, must be a single zarr or nc with (time, latitude, longitude) dims
+    # the time dimension should cover an entire LEAP YEAR
+    #
+    # e.g., periodic forcing variables can be provided on the year 2000, 
+    #       and its time coords should have 24*366 hours for a hourly model
+    #
+    # periodic forcing variables MUST be normalized BY USER 
+    forcing_variables: ['SSR']   
+    save_loc_forcing: '/ourdisk/hpc/ai2es/sedris/credit_datasets/forcing.2012.zarr'
+    
+    # static variables must be a single zarr or nc with (latitude, longitude) coords
+    # static variables must be normalized BY USER 
+    static_variables: ['lsm'] 
+    save_loc_static: '/ourdisk/hpc/ai2es/sedris/credit_datasets/static.2012.zarr'
+
+    save_loc_physics: '/ourdisk/hpc/ai2es/sedris/credit_datasets/static.2012.zarr'
+
+    # z-score files, they must be zarr or nc with (level,) coords
+    # they MUST include all the 
+    #     'variables', 'surface_variables', 'dynamic_forcing_variables', 'diagnostic_variables' above
+    mean_path: '/ourdisk/hpc/ai2es/sedris/credit_datasets/means.nc'
+    std_path: '/ourdisk/hpc/ai2es/sedris/credit_datasets/stds.nc'
+    
+    # years to form the training / validation set [first_year, last_yeat (not covered)]
+    train_years: [2010, 2015] # 2010 - 2014
+    valid_years: [2015, 2017] # 2015 - 2016
+    
+    # std_new is the new data workflow that works with z-score
+    scaler_type: 'std_new'
+    # std_cached does not perform normalization, it works for cached dataset (preprocessed dataset)
+    # scaler_type: 'std_cached'
+
+    # number of input time frames
+    # 2 for Fuxi, 
+    # 1 for a state-in-state-out model
+    history_len: 1
+    valid_history_len: 1 # keep it the same as "history_len"
+
+    # number of forecast lead times to predict during TRAINING 
+    # 0 for single-step training
+    # 1, 2, 3, ... for multi-step training
+    forecast_len: 0
+    # the "forecast_len" used for validation set, can be the same as or smaller than "forecast_len"
+    valid_forecast_len: 0
+
+    # TRAINING ONLY
+    # [Optional] backprop_on_timestep: use a list, for ex., [1, 2, 3, 5, 6, 7] to backprop on those timesteps when doing multi-step training
+    # backprop_on_timestep: [1, 2, 3, 5, 6, 7]
+
+    # when forecast_len = 0, it does nothing
+    # when forecast_len > 0, it computes training loss on the last forecast state only
+    # this option speed-up multi-step training, it ONLY works with trainer type: standard
+    # use one_shot --> True
+    # do not use one_shot --> False or null
+    one_shot: True
+                            
+    # number of hours for each forecast step
+    # lead_time_periods = 6 for 6 hourly model and 6 hourly taining data
+    # lead_time_periods = 1 for hourly model and hourly taining data
+    lead_time_periods: 24
+
+    # *NOT A STABLE FEATURE
+    # this is the keyword that resolves the mismatch between 6 hourly model and hourly data
+    # skip_periods = 6 will train a 6 hourly model on hourly data, by skipping and picking every 6 hour
+    # default is null or skip_periods = 1
+    skip_periods: null
+    
+    # this keyword makes 'std_new' compatible with the old 'std' workflow
+    #
+    # True: input tensors will be formed under the order of [static -> dynamic_forcing  -> forcing]
+    # True is the same as the old 'std'
+    #
+    # False: input tensors will be formed under the order of [dynamic_forcing -> forcing -> static]
+    static_first: False   
+
+    #dataset_type: ERA5_and_Forcing_SingleStep
+    dataset_type: ERA5_MultiStep_Batcher # ERA5_MultiStep_Batcher or MultiprocessingBatcher
+    # At present, MultiprocessingBatcher isn't working; it seems to freeze/hang on 
+    # line datasets.era5_multistep_batcher.py, L476 (self.results[k] = sample; or at least, print statements do not continue after this line)
+    # MultiprocessingBatcher will also freeze when changing tensor size from float64 to float 32 in transforms.py, L1501, 1504, 1506, 1534, 1537, 1539
+
+    # SST forcing  
+    sst_forcing:
+        activate: False
+        varname_skt: 'SKT'
+        varname_ocean_mask: 'land_sea_CI_mask'
+    
+trainer:
+    # the keyword that controls GPU usage
+    # fsdp: fully sharded data parallel
+    # ddp: distributed data parallel
+    # none: single-GPU training
+    mode: ddp
+
+    # fsdp-specific GPU optimization
+    #
+    # allow FSDP offloads gradients to CPU and free GPU memory
+    # !!! can cause CPU out-of-memory if for some large models !!! 
+    cpu_offload: False
+    # save forward pass activation to checkpoints and free GPU memory
+    activation_checkpoint: True
+    
+    # choose your training routine
+    # type: standard --> single-step training or multi-step training with one-shot: True
+    #       run train.py for standard 
+    # type: multi-step --> full multi-step training (without one-shot)
+    #       run train_multistep.py for multi-step
+    type: era5
+
+    # (optional) use torch.compile: False. May not be compatible with custom models
+    compile: False
+    
+    # load existing weights / optimizer / mixed-precision grad scaler / learning rate scheduler state(s)
+    # when starting multi-step training, only use reload weights initially, then set all to true
+    load_weights: False
+    load_optimizer: False
+    load_scaler: False
+    load_scheduler: False
+
+    # CREDIT save checkpoints at the end of every epoch
+    # save_backup_weights will also save checkpoints in the beginning of every epoch
+    save_backup_weights: True
+    # save_best_weights will save the best checkpoint separatly based on validation loss
+    # does not work if skip_validation: True
+    save_best_weights: True
+
+    # Optional for user to control which variable metrics get saved to training_log.csv
+    # Set to True to save metrics for all predicted variables
+    # Set to ["Z500", "Q500", "Q", "T"] for example to save these variables (with levels in the case of Q and T)
+    # Set to [] or None to save only bulk metrics averaged over all variables
+    save_metric_vars: True
+    
+    # update learning rate to optimizer.param_groups
+    # False if a scheduler is used
+    update_learning_rate: False
+    
+    # learning rate
+    learning_rate: 1.0e-04
+    
+    # L2 regularization on trained weights
+    # weight_decay: 0 --> turn-off L2 reg
+    weight_decay: 1.0e-5
+
+    # define training and validation batch size
+    # for ddp and fsdp, actual batch size = batch_size * number of GPUs
+    train_batch_size: 4
+    valid_batch_size: 4
+
+    # number of batches per epoch for training and validation
+    batches_per_epoch: 0 # Set to 0 to use len(dataloader)
+    valid_batches_per_epoch: 0
+    # early stopping
+    stopping_patience: 50 
+    # True: do not validate, always save weights
+    skip_validation: False
+    
+    # total number of epochs
+    start_epoch: 0
+    # the trainer will stop after iterating a given number of epochs
+    # this works for any start_epoch and reload_epoch: True
+    num_epoch: 100
+    # epoch is saved in the checkpot.pt, this option reads the last epoch 
+    # of the previous job and continue from there
+    # useful for epoch-dependent schedulers
+    reload_epoch: True # can also use --> train_one_epoch: True
+    epochs: &epochs 100
+    # if use_scheduler: False
+    # reload_epoch: False
+    # epochs: 20
+    
+    # Pytorch automatic mixed precision (amp)
+    amp: False
+
+    # Pytorch scheduler
+    # if True, specify your scheduler 
+    use_scheduler: True
+    # example: cosine-annealing
+    scheduler: {'scheduler_type': 'cosine-annealing', 'T_max': *epochs,  'last_epoch': -1}
+    
+    # rescale loss as loss = loss / grad_accum_every
+    grad_accum_every: 1
+    # gradient clipping
+    grad_max_norm: 1.0
+    
+    # number of workers
+    thread_workers: 4
+    valid_thread_workers: 4
+    prefetch_factor: 4
+
+model:
+    # available models: fuxi, crossformer
+    # type: "fuxi"
+    
+    # # fuxi example
+    # frames: 2               # number of input states
+    # image_height: &height 640       # number of latitude grids
+    # image_width: &width 1280       # number of longitude grids
+    # levels: &levels 16              # number of upper-air variable levels
+    # channels: 4             # upper-air variable channels
+    # surface_channels: 7     # surface variable channels
+    # input_only_channels: 3  # dynamic forcing, forcing, static channels
+    # output_only_channels: 0 # diagnostic variable channels
+      
+    # # patchify layer
+    # patch_height: 4         # number of latitude grids in each 3D patch
+    # patch_width: 4          # number of longitude grids in each 3D patch
+    # frame_patch_size: 2     # number of input states in each 3D patch
+      
+    # # hidden layers
+    # dim: 1024               # dimension (default: 1536)
+    # num_groups: 32          # number of groups (default: 32)
+    # num_heads: 8            # number of heads (default: 8)
+    # window_size: 7          # window size (default: 7)
+    # depth: 16               # number of swin transformers (default: 48)
+
+    # crossformer example
+    type: "crossformer"
+    frames: 1                         # number of input states (default: 1)
+    image_height: 720                 # number of latitude grids (default: 640)
+    image_width: 1440                  # number of longitude grids (default: 1280)
+    levels: 2                         # number of upper-air variable levels (default: 15)
+    channels: 3                       # upper-air variable channels
+    surface_channels: 5               # surface variable channels
+    input_only_channels: 3            # dynamic forcing, forcing, static channels
+    output_only_channels: 1           # diagnostic variable channels
+    
+    patch_width: 1                    # number of latitude grids in each 3D patch (default: 1)
+    patch_height: 1                   # number of longitude grids in each 3D patch (default: 1)
+    frame_patch_size: 1               # number of input states in each 3D patch (default: 1)
+    
+    dim_head: 32
+    dim: [64, 128, 256, 512]        # dimensionality of each layer
+    depth: [2, 2, 4, 4]               # depth of each layer
+    global_window_size: [2, 2, 2, 1]  # global window size for each layer
+    local_window_size: 5              # local window size
+    cross_embed_kernel_sizes:         # kernel sizes for cross-embedding
+    - [4, 8, 16, 32]
+    - [2, 4]
+    - [2, 4]
+    - [2, 4]
+    cross_embed_strides: [2, 2, 2, 2] # Strides for cross-embedding (default: [4, 2, 2, 2])
+    attn_dropout: 0.05                # Dropout probability for attention layers (default: 0.0)
+    ff_dropout: 0.05                  # Dropout probability for feed-forward layers (default: 0.0)
+    
+    # for BOTH fuxi and crossformer 
+    # map boundary padding
+    pad_lon: 240             # number of grids to pad on 0 and 360 deg lon
+    pad_lat: 280             # number of grids to pad on -90 and 90 deg lat
+
+    # use spectral norm
+    use_spectral_norm: True # Currently spectral norm hits the error RuntimeError: cannot reshape tensor of 0 elements into shape [0, -1] because the unspecified dimension size -1 can be any value and is ambiguous
+    
+    post_conf: 
+        model:
+            image_width: 360
+        
+        activate: True
+        
+        skebs:
+            activate: False
+        
+        tracer_fixer:
+            activate: True
+            denorm: True
+            tracer_name: ['q_tot', 'tp', 'tp_7d', 'swvl1']
+            tracer_thres: [0, 0, 0, 0]
+            
+        global_mass_fixer:
+            activate: True
+            activate_outside_model: False
+            simple_demo: False
+            denorm: True
+            grid_type: 'isobaric'
+            midpoint: True
+            fix_level_num: 3 # For midpoint = True, this must be len(level) + 1 (for surface?)
+            lon_lat_level_name: ['longitude', 'latitude', 'level']
+            surface_pressure_name: ['sp']
+            specific_total_water_name: ['q_tot']
+
+        global_water_fixer:
+            activate: True
+            activate_outside_model: False
+            simple_demo: False
+            denorm: True
+            grid_type: 'isobaric'
+            midpoint: True
+            lon_lat_level_name: ['longitude', 'latitude', 'level']
+            surface_pressure_name: ['sp']
+            specific_total_water_name: ['q_tot']
+            precipitation_name: ['tp']
+            evaporation_name: ['e']
+            
+        global_energy_fixer:
+            activate: False
+
+
+loss: 
+    # the main training loss
+    # available options are "mse", "msle", "mae", "huber", "logcosh", "xtanh", "xsigmoid"
+    training_loss: "mse"
+    use_regional_weights: True # Load 2D weights; latitude_weights file must have a variable called "latitude_weights" that is already normalized by mean(latitude_weights)
+
+    # use power or spectral loss
+    # if True, this loss will be added to the training_loss: 
+    #     total_loss = training_loss + spectral_lambda_reg * power_loss (or spectral_loss)
+    #
+    # it is preferred that power loss and spectral loss are NOT applied at the same time
+    use_power_loss: True
+    use_spectral_loss: False # if power_loss is on, turn off spectral_loss, vice versa
+    # rescale power or spectral loss when added to the total loss
+    spectral_lambda_reg: 0.1 
+    # truncate small wavenumber (large wavelength) in power or spectral loss
+    spectral_wavenum_init: 20
+    
+    # this file is MANDATORY for the "predict" section below (inference stage)
+    # the file must be nc and must contain 1D variables named "latitude" and "longitude"
+    latitude_weights: "/ourdisk/hpc/ai2es/sedris/credit_datasets/lat_and_lons.nc"
+
+    # use latitude weighting
+    # if True, the latitude_weights file MUST have a variable named "coslat"
+    # coslat is the np.cos(latitude)
+    use_latitude_weights: True
+
+    # variable weighting
+    # if True, specify your weights
+    use_variable_weights: False
+    # # an example
+    # variable_weights:
+    #     U: [0.132, 0.123, 0.113, 0.104, 0.095, 0.085, 0.076, 0.067, 0.057, 0.048, 0.039, 0.029, 0.02 , 0.011, 0.005]
+    #     V: [0.132, 0.123, 0.113, 0.104, 0.095, 0.085, 0.076, 0.067, 0.057, 0.048, 0.039, 0.029, 0.02 , 0.011, 0.005]
+    #     T: [0.132, 0.123, 0.113, 0.104, 0.095, 0.085, 0.076, 0.067, 0.057, 0.048, 0.039, 0.029, 0.02 , 0.011, 0.005]
+    #     Q: [0.132, 0.123, 0.113, 0.104, 0.095, 0.085, 0.076, 0.067, 0.057, 0.048, 0.039, 0.029, 0.02 , 0.011, 0.005]
+    #     SP: 0.1
+    #     t2m: 1.0
+    #     V500: 0.1
+    #     U500: 0.1
+    #     T500: 0.1
+    #     Z500: 0.1
+    #     Q500: 0.1
+    
+predict:
+    forecasts:
+        type: "custom"       # keep it as "custom"
+        start_year: 2018     # year of the first initialization (where rollout will start)
+        start_month: 1       # month of the first initialization
+        start_day: 1         # day of the first initialization
+        start_hours: [0]     # hour-of-day for each initialization, 0 for 00Z, 12 for 12Z
+        duration: 365        # number of days to initialize, starting from the (year, mon, day) above
+                             # duration should be divisible by the number of GPUs 
+                             # (e.g., duration: 384 for 365-day rollout using 32 GPUs)
+        days: 30             # forecast lead time as days (1 means 24-hour forecast)
+
+    # this keyword will apply a low-pass filter to all fields and each forecast step
+    # it will reduce high-freq noise, but may impact performance
+    use_laplace_filter: False
+
+    # The location to store rollout predictions, the folder structure will be:
+    # $save_forecast/$initialization_time/file.nc
+    # each forecast lead time produces a file.nc
+    save_forecast: '/scratch/rarrell/test_credit/forecasts/'
+
+    # saved variables
+    # save_vars: [] will save ALL variables
+    # remove save_vars from config will save ALL variables
+    # save_vars: ['u', 'v', 'swvl1'] # Seems to need to include upper air variables as the program still looks for them
+
+    save_format: 'nc' #'nc' or 'none'
+
+    # location of the metadata
+    # users can use $repo/credit/metadata/era5.yaml as an example to create their own
+    metadata: '/ourdisk/hpc/ai2es/sedris/credit_datasets/test_metadata.yaml'
+
+    # interp_pressure:
+    #     pressure_levels: [200.0, 500.0]
+    #     surface_geopotential_var: 'surface_geopotential_var'
+    #     interp_fields: ['u', 'v']
+    #     temperature_var: "tair"
+    #     q_var: "q"
+    #     surface_pressure_var: "sp"
+    #     geopotential_var: "z"
+
+    static_fields: "/ourdisk/hpc/ai2es/sedris/credit_datasets/static.2012.zarr" # Static forcing file.
+
+    ua_var_encoding:
+        zlib: True
+        complevel: 1
+        shuffle: True
+        chunksizes: [1, 2, 180, 360]
+
+    pressure_var_encoding:
+        zlib: True
+        complevel: 1
+        shuffle: True
+        chunksizes: [1, 2, 180, 360]
+
+    surface_var_encoding:
+        zlib: true
+        complevel: 1
+        shuffle: True
+        chunksizes: [1, 180, 360]
+
+visualization:
+    sigma_level_visualize:
+        variable_keys: ['u','v']  # variable keys as defined in **[data][variables][...]**
+        visualize_levels: [0, 1,]     # sigma levels (by their indices) to visualize 
+        variable_names: ['U wind [m/s]', # the name of each variable
+                         'V wind [m/s]'] # must be consistent with **variable_indices**
+        variable_factors: [1, 1]
+        variable_range: [auto, auto] # use auto or provide a list of [min_var, max_var]; it applies to all levels
+        colormaps: ['Spectral_r', 'Spectral_r']
+        file_name_prefix: 'global_sigma'
+    diagnostic_variable_visualize:
+        variable_keys: ['swvl1']
+        visualize_levels: ['none'] # none for single level variables
+        variable_names: ['0 - 28 cm Volumetric Soil Moisture [m^3/m^3]']
+        variable_factors: [1]
+        variable_range: [auto]
+        colormaps: ['Spectral_r']
+        file_name_prefix: 'global_diagnostics'
+    surface_visualize:
+        variable_keys: ['tair', 'sp', 'tp']
+        visualize_levels: ['none', 'none', 'none']
+        variable_names: ['Surface Pressure [Pa]', 
+                         '2-m Air Temperature [K]',
+                         'Total Precipitation [m]']
+        variable_factors: [0.01, 1, 1]
+        variable_range: [[650, 1100], [200, 350], auto]
+        colormaps: ['Spectral', 'viridis_plasma', 'viridis_plasma']
+        file_name_prefix: 'global_surface'
+    map_projection: 'EckertIII' # PlateCarree, LambertCylindrical, Miller, EckertIII, Mollweide, Robinson
+    save_options: {'dpi':250, 
+                   'orientation':'portrait', 
+                   'bbox_inches':'tight', 
+                   'pad_inches':0.1, 
+                   'transparent':False,
+                   'format':'png'}
+    video_format: 'mp4' # gif, mp4, none
+
+# credit.pbs supports NSF NCAR HPCs (casper.ucar.edu and derecho.hpc.ucar.edu)
+#pbs: 
+#    # example for derecho
+#    conda: "/home/rarrell/.conda/envs/credit"
+#    project: "NAML0001"
+#    job_name: "train_model"
+#    walltime: "12:00:00"
+#    nodes: 8
+#    ncpus: 64
+#    ngpus: 4
+#    mem: '40GB'
+#    queue: 'normal'
+    
+    # examaple for casper
+    # conda: "/glade/work/ksha/miniconda3/envs/credit"
+    # job_name: 'train_model'
+    # nodes: 1
+    # ncpus: 8
+    # ngpus: 1
+    # mem: '128GB'
+    # walltime: '4:00:00'
+    # gpu_type: 'v100'
+    # project: 'NRIS0001'
+    # queue: 'casper'
+    
