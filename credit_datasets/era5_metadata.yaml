@@ -1,0 +1,274 @@
+u:
+    long_name: "U component of wind" 
+    standard_name: "eastward_wind" 
+    short_name: "u"
+    units: "m s**-1"
+    _FillValue: 9.999e+20
+    
+v:
+    long_name: "V component of wind"
+    standard_name: "northward_wind"
+    short_name: "v"
+    units: "m s**-1"
+    wmo_discipline: 0
+    _FillValue: 9.999e+20
+
+z:
+    long_name: "Geopotential" 
+    standard_name: "geopotential" 
+    short_name: "z"
+    units: "m**2 s**-2"
+    _FillValue: 9.999e+20
+
+q_tot:
+    long_name: "Total Specific Water Content" 
+    standard_name: "total_specific_water" 
+    short_name: "q_tot"
+    units: "kg kg**-1"
+    _FillValue: 9.999e+20
+    
+sp:
+    long_name: "Surface pressure"
+    standard_name: "surface_air_pressure"
+    short_name: "sp"
+    units: "Pa"
+    original_format: "WMO GRIB 1"
+    _FillValue: 9.999e+20
+    
+time:
+    long_name: "time"
+    units: "hours since 1900-01-01 00:00:00"
+    calendar: "gregorian"
+    
+    
+latitude:
+    long_name: "latitude"
+    short_name: "lat"
+    units: "degrees_north"
+    qualifier: "Gaussian"
+    
+longitude:
+    long_name: "longitude"
+    short_name: "lon"
+    units: "degrees_east"
+    qualifier: "Gaussian"
+    
+tair:
+    long_name: "2 metre temperature"
+    short_name: "tair"
+    standard_name: "air_temperature"
+    units: "K"
+    _FillValue: 9.999e+20
+
+d2m:
+    long_name: "2 metre dewpoint temperature"
+    short_name: "d2m"
+    standard_name: "dewpoint_temperature"
+    units: "K"
+    _FillValue: 9.999e+20
+    
+tp:
+    long_name: "Total Accumulated Precipitation"
+    standard_name: "precipitation"
+    short_name: "tp"
+    units: "m"
+    _FillValue: 9.999e+20
+
+tp_7d:
+    long_name: "7 day Total Accumulated Precipitation"
+    standard_name: "7_day_precipitation"
+    short_name: "tp_7d"
+    units: "m"
+    _FillValue: 9.999e+20
+
+tp_14d:
+    long_name: "14 Day Total Accumulated Precipitation"
+    standard_name: "14_day_precipitation"
+    short_name: "tp_14d"
+    units: "m"
+    _FillValue: 9.999e+20
+
+tp_30d:
+    long_name: "30 Day Total Accumulated Precipitation"
+    standard_name: "30_day_precipitation"
+    short_name: "tp_30d"
+    units: "m"
+    _FillValue: 9.999e+20
+
+e:
+    long_name: "Evaporation"
+    standard_name: "evaporation"
+    short_name: "e"
+    units: "m"
+    _FillValue: 9.999e+20
+
+pev:
+    long_name: "Potential Evaporation"
+    standard_name: "potential_evaporation"
+    short_name: "pev"
+    units: "m"
+    _FillValue: 9.999e+20
+
+cvh:
+    long_name: "High Vegetation Cover"
+    standard_name: "high_vegetation_cover"
+    short_name: "cvh"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+cvl:
+    long_name: "Low Vegetation Cover"
+    standard_name: "low_vegetation_cover"
+    short_name: "cvl"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+enso:
+    long_name: "El Nino Southern Oscillation Index"
+    standard_name: "el_nino_southern_oscillation"
+    short_name: "enso"
+    units: "K"
+    _FillValue: 9.999e+20
+
+iod:
+    long_name: "Indian Ocean Dipole Index"
+    standard_name: "indian_ocean_dipole"
+    short_name: "iod"
+    units: "K"
+    _FillValue: 9.999e+20
+
+pdo:
+    long_name: "Pacific Decadal Oscillation Index"
+    standard_name: "pacific_decadal_oscillation"
+    short_name: "pdo"
+    units: "K"
+    _FillValue: 9.999e+20
+
+nao:
+    long_name: "North American Oscillation Index"
+    standard_name: "north_american_oscillation"
+    short_name: "nao"
+    units: "K"
+    _FillValue: 9.999e+20
+
+amo:
+    long_name: "Atlantic Multidecadal Oscillation Index"
+    standard_name: "atlantic_multidecadal_oscillation"
+    short_name: "amo"
+    units: "K"
+    _FillValue: 9.999e+20
+
+ndvi:
+    long_name: "Normalized Differential Vegetation Index"
+    standard_name: "normalized_differential_vegetation_index"
+    short_name: "cvl"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+evi:
+    long_name: "Enhanced Vegetation Index"
+    standard_name: "enhanced_vegetation_index"
+    short_name: "evi"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+lai:
+    long_name: "Leaf Area Index"
+    standard_name: "leaf_area_index"
+    short_name: "lai"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+fpar:
+    long_name: "Fraction of Absorbed Photosynthetically Active Radiation"
+    standard_name: "fraction_absorbed_photosynthetic_active_radiation"
+    short_name: "fpar"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+ws:
+    long_name: "10 Metre Wind Speed"
+    standard_name: "wind_speed"
+    short_name: "ws"
+    units: "m s**-1"
+    _FillValue: 9.999e+20
+
+fg10:
+    long_name: "10 Metre Wind Gusts"
+    standard_name: "wind_gust"
+    short_name: "fg10"
+    units: "m s**-1"
+    _FillValue: 9.999e+20
+    
+ssr:
+    long_name: "Net Surface Solar Radiation"
+    standard_name: "radiation"
+    short_name: "ssr"
+    units: "W m**-2"
+    _FillValue: 9.999e+20
+    
+sesr:
+    long_name: "Standardized Evaporative Stress Ratio"
+    standard_name: "sesr"
+    short_name: "sesr"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+swvl1:
+    long_name: "Volumetric Soil Moisture for 0 - 7 cm"
+    standard_name: "soil_moisture_layer_1"
+    short_name: "swvl1"
+    units: "m**3 m**-3"
+    _FillValue: 9.999e+20
+
+swvl2:
+    long_name: "Volumetric Soil Moisture for 7 - 28 cm"
+    standard_name: "soil_moisture_layer_2"
+    short_name: "swvl2"
+    units: "m**3 m**-3"
+    _FillValue: 9.999e+20
+
+swvl3:
+    long_name: "Volumetric Soil Moisture for 28 - 100 cm"
+    standard_name: "soil_moisture_layer_3"
+    short_name: "swvl3"
+    units: "m**3 m**-3"
+    _FillValue: 9.999e+20
+
+swvl4:
+    long_name: "Volumetric Soil Moisture for 100 - 289 cm"
+    standard_name: "soil_moisture_layer_4"
+    short_name: "swvl4"
+    units: "m**3 m**-3"
+    _FillValue: 9.999e+20
+
+fdii1:
+    long_name: "Flash Drought Intensity Index for 0 - 7 cm Soil Moisture"
+    standard_name: "fdii_layer_1"
+    short_name: "fdii1"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+fdii2:
+    long_name: "Flash Drought Intensity Index for 7 - 28 cm Soil Moisture"
+    standard_name: "fdii_layer_2"
+    short_name: "fdii2"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+fdii3:
+    long_name: "Flash Drought Intensity Index for 28 - 100 cm Soil Moisture"
+    standard_name: "fdii_layer_3"
+    short_name: "fdii3"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+fdii4:
+    long_name: "Flash Drought Intensity Index for 100 - 289 cm Soil Moisture"
+    standard_name: "fdii_layer_4"
+    short_name: "fdii4"
+    units: "unitless"
+    _FillValue: 9.999e+20
+
+
+    
