@@ -1,4 +1,4 @@
-# Script to takes netcdf ERA5 files and turn them into zarrs of the desired format for CREDIT test runs
+# Script takes netcdf ERA5 files and turn them into zarrs of the desired format for CREDIT test runs
 import os
 import numpy as np
 import gc
@@ -34,6 +34,8 @@ from transform_grid import interpolate_data, interpolate_to_new_grid
 # and creates the .zarray, .zattrs, and .zmetadata files that xarray 
 # looks for when loading zarr
 zarr.config.set({'default_zarr_format': 2})
+
+# Define the climat index variables
 index_variables = [
     'enso',
     'amo',
@@ -41,6 +43,8 @@ index_variables = [
     'pdo',
     'iod'
 ]
+
+# Define the GLDAS variables
 gldas_variables = [
     'temperature',
     'pressure',
@@ -62,18 +66,24 @@ gldas_variables = [
     'fdii_3',
     'fdii_4'
 ]
+
+# Define the variables from IMERG
 imerg_variables = [
     'precipitation',
     'precipitation_7day',
     'precipitation_14day',
     'precipitation_30day'
 ]
+
+# Define the variables from MODIS
 modis_variables = [
     'ndvi',
     'evi',
     'lai',
     'fpar'
 ]
+
+# Define the variables not found in ERA5
 not_in_era5 = [
     'enso',
     'amo',
@@ -86,20 +96,41 @@ not_in_era5 = [
     'fpar' # MODIS variables and climate indices
 ]
 
-def make_climatology_dataset(args, make_climatology = True, make_statistics = False):
+def make_climatology_dataset(
+        args, 
+        make_climatology: bool = True, 
+        make_statistics: bool = False
+        ) -> None:
     '''
     Calculate the climatological mean for each day of the year for each of the predicted variables
     (that is, upper air, surface, and diagnostic variables)
+
+    Inputs:
+    :param args: Dictionary of parser arguments specified at the terminal. 
+                 Key arguments for this analysis are:
+                 --years, --pressure_levels, --upper_air_variables, --surface_variables, --dynamic_variables
+                 --diagnostic_variables, --datasets, --reduce_scale and --nthreads
+    :param make_climatology: Booleaning indicating whether to make the climatology zarr file
+    :param make_statistics: Boolean indicating whether to make climate statistics 
+                            (overall means and standard deviations)
     '''
 
-    # Initialize dataset
+    # Initialize climatology dataset
     climatology = {}
+
+    # Determine all years in the dataset and number of pressure levels
     years = np.arange(args.years[0], args.years[1]+1)
     N_levels = len(args.pressure_levels)
 
+    # List upper air variables
     upper_air_variables = args.upper_air_variables
-    # Surface and diagnost variables should have the same shape and can then be considered together
-    variables = np.concatenate([args.surface_variables, args.dynamic_variables, args.diagnostic_variables])
+
+    # Surface and diagnostic variables should have the same shape and can then be considered together
+    variables = np.concatenate([args.surface_variables, 
+                                args.dynamic_variables, 
+                                args.diagnostic_variables])
+    
+    # Create a list of all variables
     all_variables = np.concatenate([upper_air_variables, variables])
 
     # Load in a test dataset (includes leap year)
@@ -114,20 +145,22 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
         test['lon'] = nc.variables['lon'][:]
         time = nc.variables['date'][:]
 
-    # Reduce data scale to 1 degree x 1 degree?
+    # Reduce data scale to 1 degree x 1 degree if desired
     if args.reduce_scale:
         print('Reducing spatial scale of test data')
         test, lat, lon = reduce_spatial_scale(test, test_sname)
     else:
-        # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult to work with since 721 only has two primes (721=7*103)
-        # So remove the -90 degree point to make the grid easier (720 = 2^4*3^2*5)
+        # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult to work with 
+        # since 721 only has two primes (721=7*103)
+        # So remove the -90 degree point to make the grid easier to work with (720 = 2^4*3^2*5)
         lat = test['lat'][:-1,:]; lon = test['lon'][:-1,:]
         test = test[test_sname][:,:-1,:]
 
-    # Get information on the data
+    # Get date information for one year
     T, I, J = test.shape
     dates = np.array([datetime.fromisoformat(day) for day in time])
 
+    # If the climatology file already exists, skip the calculations and load the means
     if os.path.exists('climatology.2012.zarr') & (make_climatology | make_statistics):
         print('Climatology file made. Loading file instead')
         climatology = zarr.open_group('climatology.2012.zarr')
@@ -153,17 +186,21 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
                     for datum in data:
                         days = datum[1]; months = datum[2]
                         for t, date in enumerate(dates):
-                            # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
+                            # Get the index in the current corresponding to the day in the loop 
+                            # (may not be the same as t as current year may not be a leap year)
                             ind = np.where( (date.day == days) & (date.month == months) )[0]
 
                             # For non-leap years, ind can be empty; skip this day
                             if len(ind) < 1:
                                 continue
                             else:
-                                climatology[sname][t,l,:,:] = np.nansum([climatology[sname][t,l,:,:], datum[0][ind[0],:,:]], axis = 0) # np.nansum to account for any NaNs
+                                # Accumulate values for each variable (will be divided later to make an average)
+                                climatology[sname][t,l,:,:] = np.nansum([climatology[sname][t,l,:,:], datum[0][ind[0],:,:]], 
+                                                                        axis = 0) # np.nansum to account for any NaNs
                 
                 del data; gc.collect() # Free up memory
 
+            # Now outside loop over each pressure level
             # Reduce the variable save to help with memory
             climatology[sname] = climatology[sname].astype(np.float32)
     
@@ -186,13 +223,18 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
                 for datum in data:
                     days = datum[1]; months = datum[2]
                     for t, date in enumerate(dates):
-                        # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
+                        # Get the days in the current corresponding to the day in the loop 
+                        # (may not be the same as t as current year may not be a leap year)
                         ind = np.where( (date.day == days) & (date.month == months) )[0]
                         # For non-leap years, ind can be empty; skip this day
                         if len(ind) < 1:
                             continue
                         else:
-                            climatology[sname][t,:,:] = np.nansum([climatology[sname][t,:,:], datum[0][ind[0],:,:]], axis = 0) # np.nansum to account for any NaNs
+                            # Accumulate values for each variable (will be divided later to make an average)
+                            climatology[sname][t,:,:] = np.nansum([climatology[sname][t,:,:], datum[0][ind[0],:,:]], 
+                                                                  axis = 0) # np.nansum to account for any NaNs
+                            
+                            # Increment the counter for the mean calculation
                             if var == variables[0]:
                                 N[t] = N[t] + 1
             
@@ -206,6 +248,7 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
         # At the end, loop again to get to divide the sums by N to get the means
         print('Calculating averages')
         for t, date in enumerate(dates):
+            # Separate treatment for upper air variables since it has an extra dimension
             for var in upper_air_variables:
                 sname = get_var_shortname(var)
                 climatology[sname][t,:,:,:] = climatology[sname][t,:,:,:]/N[t]
@@ -223,18 +266,29 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
         # Write the climatology (climatological mean) dataset
         if make_climatology:
             print('Saving results')
-            make_zarr_group(climatology, lat, lon, time, all_variables, 2012, var_type = 'climatology', levels = args.pressure_levels)
+            make_zarr_group(climatology, 
+                            lat, 
+                            lon, 
+                            time, 
+                            all_variables, 
+                            2012, 
+                            var_type = 'climatology', 
+                            levels = args.pressure_levels)
 
+    # Make the overal means and standard deviation statistics if desired
     if make_statistics:
         stds = {}
-        # Do standard deviation calculations, then average it all together to get the "average mean" and the "average standard deviation"
+        # Do standard deviation calculations, then average it all together 
+        # to get the "average mean" and the "average standard deviation"
         print('Calculating standard deviations')
         # Iterate through upper-air (4D) variables and get climatologies
         for var in upper_air_variables:
+
             # Initialize current dataset
             sname = get_var_shortname(var)
             # stds[sname] = np.zeros((T, N_levels, I, J), dtype = np.float32)
             stds[sname] = np.zeros((N_levels))
+
             for l, level in enumerate(args.pressure_levels):
                 # Collect the arguments needed for to load and process 1 year of data
                 param_args = [(year, var, sname, args.datasets, args.reduce_scale, level) for year in years]
@@ -262,6 +316,7 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
                 
                 del data; gc.collect() # Free up memory
 
+            # Now outside loop over each pressure level
             # Decrease variable size to help with memory
             stds[sname] = stds[sname].astype(np.float32)
 
@@ -270,6 +325,7 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
         # N = np.zeros((T)) 
         N = 0
         for var in variables:
+
             # Initialize current dataset
             sname = get_var_shortname(var)
             # stds[sname] = np.zeros((T, I, J), dtype = np.float32)
@@ -318,14 +374,17 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
         #     for var in variables:
         #         sname = get_var_shortname(var)
         #         stds[sname][t,:,:] = np.sqrt(stds[sname][t,:,:]/(N[t]-1))
+        
         print(N)
+        # Obtain the average standard deviation value for each variable
         for var in all_variables:
             sname = get_var_shortname(var)
             stds[sname] = stds[sname]/N
             print(sname, np.nanmin(stds[sname]), np.nanmax(stds[sname]), np.nanmean(stds[sname]))
 
         # Finally, average the means and standard deviations to a single variable
-        means = {} # Creating a new dictionary for teh averaged means gets around the fact climatology may be a loaded in zarr array
+        means = {} # Creating a new dictionary for the averaged means gets around 
+                   # the fact climatology may be a loaded in zarr array
         for var in upper_air_variables:
             sname = get_var_shortname(var)
             means[sname] = np.array([np.nanmean(climatology[sname][:,l,:,:]) for l in range(len(args.pressure_levels))]).astype(np.float32)
@@ -336,30 +395,36 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
             means[sname] = np.nanmean(climatology[sname][:]).astype(np.float32)
             # stds[sname] = np.nanmean(stds[sname][:]).astype(np.float32)
 
-        # Write the means and standard deviations to .nc files
+        # Write the means to a .nc file
         print('Writing means and standard deviations')
         with Dataset('means.nc', 'w', format = 'NETCDF4') as nc:
             nc.createDimension('level', size = len(args.pressure_levels))
             #nc.createDimension('surface', size = 1)
+
+            # Create and write the upper air means
             for var in upper_air_variables:
                 sname = get_var_shortname(var)
                 nc.createVariable(sname, means[sname].dtype, ('level', ))
                 nc.variables[sname][:] = means[sname][:]
 
+            # Create and write the remaining means
             for var in variables:
                 sname = get_var_shortname(var)
-                print('Means: ', means[sname].item(), means[sname].dtype)
                 nc.createVariable(sname, means[sname].dtype)#, ('surface', ))
                 nc.variables[sname][:] = means[sname]
 
+        # Write the standard deviations
         with Dataset('stds.nc', 'w', format = 'NETCDF4') as nc:
             nc.createDimension('level', size = len(args.pressure_levels))
             #nc.createDimension('surface', size = 1)
+
+            # Create and write the upper air standard deviations
             for var in upper_air_variables:
                 sname = get_var_shortname(var)
                 nc.createVariable(sname, stds[sname].dtype, ('level', ))
                 nc.variables[sname][:] = stds[sname][:]
 
+            # Create and write the remaining standard deviations
             for var in variables:
                 sname = get_var_shortname(var)
                 nc.createVariable(sname, stds[sname].dtype)#, ('surface', ))
@@ -370,16 +435,24 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
         weights = np.cos(lat*np.pi/180)
         lat_tmp = lat.copy()
 
-        # Get the region
+        # Get the African region
         lat_tmp[np.invert((lat >= -35) & (lat <= 35))] = -999
         lat_tmp[np.invert((lon >= 335) | (lon <= 53))] = -999
+
+        # Define latitude weights outside of Africa as lower values 
+        # (to weight in favor of Africa)
         weights = np.where(lat_tmp == -999, weights/5, weights) # Alternatively to 0, weights/5 or weights/10
 
         # Normalize weights by mean(weights)
+        # Find the indices for the region
         lat_ind = np.where((lat[:,0] >= -35) & (lat[:,0] <= 35))[0]
         lon_ind = np.where((lon[0,:] >= 335) | (lon[0,:] <= 53))[0]
+
+        # Isolate the weights for the region
         tmp = weights[lat_ind,:]
         region_weights = tmp[:,lon_ind]
+
+        # Normalize the weights
         weights_mean = np.nanmean(region_weights)
         weights = weights/weights_mean
 
@@ -390,73 +463,104 @@ def make_climatology_dataset(args, make_climatology = True, make_statistics = Fa
 
         # Write lat and lons
         with Dataset('lat_and_lons.nc', 'w') as nc:
+            # Create the dimensions
             nc.createDimension('lat', size = lat.size)
             nc.createDimension('lon', size = lon.size)
 
+            # Create the coordinate and weight variables
             nc.createVariable('latitude', lat.dtype, ('lat', ))
             nc.createVariable('longitude', lon.dtype, ('lon', ))
             nc.createVariable('coslat', coslat.dtype, ('lat', ))
             nc.createVariable('latitude_weights', weights.dtype, ('lat', 'lon'))
 
+            # Store the coordinate and weight information
             nc.variables['latitude'][:] = lat[:]
             nc.variables['longitude'][:] = lon[:]
             nc.variables['coslat'][:] = coslat[:]
             nc.variables['latitude_weights'][:] = weights[:]
 
-def make_upper_air_dataset(args):
+def make_upper_air_dataset(args) -> None:
     '''
     Make the upper air zarr dataset
+
+    Inputs:
+    :param args: Dictionary of parser arguments specified at the terminal. 
+                 Key arguments for this analysis are:
+                 --year, --pressure_levels, --reduce_scale, and --upper_air_variables
     '''
 
+    # Initialize the dataset 
     data_end = {}
     for var in args.upper_air_variables:
         data_total = []
         sname = get_var_shortname(var)
+
         # Collect data for each level
         for l, level in enumerate(args.pressure_levels):
-            # Total specific humidity has to be calculated separately, and does not have a file
+            # Total specific humidity has to be calculated separately, 
+            # and does not have a .nc file to load
             if var == 'total_specific_humidity':
                 data = calculate_q_total_upper_level(args.year, level)
             else:
-                # Get filename
+                # Get the filename and path of the variable
+                # Note upper air data is always from ERA5
                 path = path_to_raw_datasets(var, 'era5', level = level)
                 filename = get_fn(var, args.year, level = level)
                 print(filename)
 
-                # Load variable
+                # Load the variable
                 data = load_nc('%s/%s.nc'%(path, filename), sname)
 
-            # reduce scale of data to 1 deg x 1 deg
+            # reduce scale of data to 1 deg x 1 deg if desired
             if args.reduce_scale:
                 data_new, lat, lon = reduce_spatial_scale(data, sname)
             else:
-                # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult to work with since 721 only has two primes (721=7*103)
+                # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult 
+                # to work with since 721 only has two primes (721=7*103)
                 # So remove the -90 degree point to make the grid easier (720 = 2^4*3^2*5)
                 data_new = data[sname][:,:-1,:]; lat = data['lat'][:-1,:]; lon = data['lon'][:-1,:] # Latitude may need to be reversed
     
-            # reduce datasize to float16
+            # Reduce datasize to float32
             data_new = data_new.astype(np.float32)
-            #data_new = data_new.astype(np.float16)
             print(np.nanmin(data_new), np.nanmax(data_new), np.nanmean(data_new))
 
+            # Append processed variable to the list
             data_total.append(data_new)
         
+        # After each pressure level, stack the data along axis 1 
+        # to get the data in the shape time x level x lat x lon
         data_total = np.stack(data_total, axis = 1)
 
-        # reduce datasize to float16
+        # Reduce datasize to float32 and add to the complete dataset
         data_total = data_total.astype(np.float32)
         data_end[sname] = data_total
 
         print('data size reduced')
 
-    # create variable entry in zarr
-    make_zarr_group(data_end, lat, lon, data['time'], args.upper_air_variables, args.year, var_type = 'upper_air', levels = args.pressure_levels)
+    # Create the upper air zarr file
+    make_zarr_group(data_end, 
+                    lat, 
+                    lon, 
+                    data['time'], 
+                    args.upper_air_variables, 
+                    args.year, 
+                    var_type = 'upper_air', 
+                    levels = args.pressure_levels)
 
-def make_dataset(args, var_type = 'surface'):
+def make_dataset(args, var_type = 'surface') -> None:
     '''
     Make the zarr dataset for surface, dynamic, or diagnostic variables
+
+    Inputs:
+    :param args: Dictionary of parser arguments specified at the terminal. 
+                 Key arguments for this analysis are:
+                 --year, --datasets, --reduce_scale, --surface_variables,  
+                 --dynamic_variables, and --diagnostic_variables 
+                 (note of the last three, only one gets used per function call)
+    :param var_type: Type of variable list that is being created (surface, dynamic, or diagnostic)
     '''
 
+    # Define the variables to be loaded and processed
     if var_type == 'surface':
         variables = args.surface_variables
     elif var_type == 'dynamic':
@@ -464,19 +568,26 @@ def make_dataset(args, var_type = 'surface'):
     elif var_type == 'diagnostic':
         variables = args.diagnostic_variables
 
+    # Initialize the final dataset/directory
     data_end = {}
+
     for var in variables:
         print(var)
+        # For variables found in ERA5, load a test set with grid information for interpolation
         if var not in not_in_era5:
+            # Different precipitation accumulations will load precipitation (they have to be calculated)
             if 'precipitation' in var:
                 sname = get_var_shortname('precipitation')
             else:
                 sname = get_var_shortname(var)
 
+            # Wind speed doesn't have an ERA5 variable, it has to be calculated
             if var == 'wind_speed':
                 data = calculate_wind_speed(args.year)
+
+            # Else, load a test/placeholder dataset
             else:
-                # Get filename
+                # Get the filename and path
                 path = path_to_raw_datasets(var, 'era5')
                 filename = get_fn(var, args.year)
                 print(filename)
@@ -484,15 +595,20 @@ def make_dataset(args, var_type = 'surface'):
                 # Load variable
                 data = load_nc('%s/%s.nc'%(path, filename), sname)
         else:
-            # Load a filler set of data with the grid information for the interpolation step
+            # If the variable is not in ERA5, load temperature for one year as a filler data
+            # with the grid information for the interpolation step
+ 
+            # Obtain the filename and path information
             path = path_to_raw_datasets('temperature', 'era5')
             filename = get_fn('temperature', args.year)
+
+            # Load the data
             data = load_nc('%s/%s.nc'%(path, filename), 'tair')
 
-            # Get the sname for the dataset
+            # Get the sname for the variable
             sname = get_var_shortname(var)
 
-        # Add data from other, non-ERA5 datasets?
+        # Add data from other, non-ERA5 datasets if requested
         if np.invert(args.datasets == 'era5'):
             if (args.datasets == 'few'):
                 # For 'few', only add the reanalyses and index data
@@ -505,7 +621,8 @@ def make_dataset(args, var_type = 'surface'):
 
             if (args.datasets == 'all'):
                 # Include all reanalyses and satellite data
-                # Note, done this way, any variables in reanalyses and satellite data will use satellite (i.e., satellite data has priority)
+                # Note, done this way, any variables in reanalyses and satellite data will use satellite 
+                # (i.e., satellite data has priority)
                 if var in modis_variables:
                     dataset = 'modis'
                 elif var in imerg_variables:
@@ -520,42 +637,81 @@ def make_dataset(args, var_type = 'surface'):
             # Load in the data from the other dataset and interpolate to the ERA5 grid
             if dataset is not None:
                 print('Loading and interpolation data from %s for %s and for year %d'%(dataset, var, args.year))
-                sname_tmp = 'tair' if var in not_in_era5 else sname       
-                data = interpolate_data(data, sname_tmp, dataset, var, args.year, resolution = 0.25)
+                sname_tmp = 'tair' if var in not_in_era5 else sname
+
+                # Perform the interpolation   
+                data = interpolate_data(data, 
+                                        sname_tmp, 
+                                        dataset, 
+                                        var, 
+                                        args.year, 
+                                        resolution = 0.25)
                 
-        # Perform a running sum of precipitation?
+        # Perform a running sum of precipitation if required
         if var == 'precipitation_7day':
+            # Get the 7 day accumulation short name
             sname = get_var_shortname(var)
+
+            # Convert to float64 
+            # (lower accuracies results in noticable, potentially overflow related, errors in the running sum)
             data['tp'] = data['tp'].astype(np.float64)
+
+            # Compute the 7 day running sum
             data[sname] = running_sum(data['tp'], N = 7)
         elif var == 'precipitation_14day':
-            data['tp'] = data['tp'].astype(np.float64)
+            # Get the 14 day accumulation short name
             sname = get_var_shortname(var)
+
+            # Convert to float64 
+            # (lower accuracies results in noticable, potentially overflow related, errors in the running sum)
+            data['tp'] = data['tp'].astype(np.float64)
+            
+            # Compute the 14 day running sum
             data[sname] = running_sum(data['tp'], N = 14)
         elif var == 'precipitation_30day':
-            data['tp'] = data['tp'].astype(np.float64)
+            # Get the 30 day accumulation short name
             sname = get_var_shortname(var)
+
+            # Convert to float64 
+            # (lower accuracies results in noticable, potentially overflow related, errors in the running sum)
+            data['tp'] = data['tp'].astype(np.float64)
+            
+            # Compute the 30 day running sum
             data[sname] = running_sum(data['tp'], N = 30)
 
-        # reduce scale of data to 1 deg x 1 deg
+        # reduce scale of data to 1 deg x 1 deg if desired
         if args.reduce_scale:
             data_new, lat, lon = reduce_spatial_scale(data, sname)
         else:
+            # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult 
+            # to work with since 721 only has two primes (721=7*103)
+            # So remove the -90 degree point to make the grid easier (720 = 2^4*3^2*5)
             data_new = data[sname][:,:-1,:]; lat = data['lat'][:-1,:]; lon = data['lon'][:-1,:] # Latitude may need to be reversed
     
-        # reduce datasize to float16
+        # reduce datasize to float32
         data_new = data_new.astype(np.float32)
-        #data_new = data_new.astype(np.float16)
         print(np.nanmin(data_new), np.nanmax(data_new), np.nanmean(data_new))
 
+        # Add variable to the complete dataset
         data_end[sname] = data_new
 
-    # create variable entry in zarr
-    make_zarr_group(data_end, lat, lon, data['time'], variables, args.year, var_type = var_type)
+    # Create the zarr file for the dataset
+    make_zarr_group(data_end, 
+                    lat, 
+                    lon, 
+                    data['time'], 
+                    variables, 
+                    args.year, 
+                    var_type = var_type)
 
-def make_forcing_dataset(args):
+def make_forcing_dataset(args) -> None:
     '''
     Make the forcing dataset (annual mean of a given variable, giving the average value for a given day in the year)
+
+    Inputs:
+    :param args: Dictionary of parser arguments specified at the terminal. 
+                 Key arguments for this analysis are:
+                 --years, --forcing_variables, --reduce_scale, and --datasets
     '''
 
     # Initialize dataset
@@ -564,10 +720,12 @@ def make_forcing_dataset(args):
 
     # Load in a test dataset (includes leap year)
     print('Loading test data')
+    # Path and filename information
     test_path = path_to_raw_datasets(args.forcing_variables[0], 'era5')
     test_fn = get_fn(args.forcing_variables[0], 2012)
     test_sname = get_var_shortname(args.forcing_variables[0])
     test = {}
+    # Load test set
     with Dataset('%s/%s.nc'%(test_path, test_fn), 'r') as nc:
         test[test_sname] = nc.variables[test_sname][:]
         test['lat'] = nc.variables['lat'][:]
@@ -575,20 +733,22 @@ def make_forcing_dataset(args):
         time = nc.variables['date'][:]
         time_final = time
 
+    # Reduce the spatial scale if desired
     if args.reduce_scale:
         print('Reducing spatial scale of test data')
         test, lat, lon = reduce_spatial_scale(test, test_sname)
     else:
-        # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult to work with since 721 only has two primes (721=7*103)
+        # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult 
+        # to work with since 721 only has two primes (721=7*103)
         # So remove the -90 degree point to make the grid easier (720 = 2^4*3^2*5)
         lat = test['lat'][:-1,:]; lon = test['lon'][:-1,:]
         test = test[test_sname][:,:-1,:]
         
-    # Get information on the data
+    # Get date information for one year
     T, I, J = test.shape
     dates = np.array([datetime.fromisoformat(day) for day in time])
 
-    # Iterate through upper-air (4D) variables and get climatologies
+    # Iterate through forcing variables and get climatologies
     N = np.zeros((T))
     for var in args.forcing_variables:
         # Initialize current dataset
@@ -606,14 +766,18 @@ def make_forcing_dataset(args):
             for datum in data:
                 days = datum[1]; months = datum[2]
                 for t, date in enumerate(dates):
-                    # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
+                    # Get the current index corresponding to the day in the loop 
+                    # (may not be the same as t as current year may not be a leap year)
                     ind = np.where( (date.day == days) & (date.month == months) )[0]
 
                     # For non-leap years, ind can be empty; skip this day
                     if len(ind) < 1:
                         continue
                     else:
-                        forcings[sname.upper()][t,:,:] = np.nansum([forcings[sname.upper()][t,:,:], datum[0][ind[0],:,:]], axis = 0) # np.nansum to account for any NaNs
+                        # Sum over the variable
+                        forcings[sname.upper()][t,:,:] = np.nansum([forcings[sname.upper()][t,:,:], datum[0][ind[0],:,:]], 
+                                                                   axis = 0) # np.nansum to account for any NaNs
+                        # Iterate the counter for the average calculations
                         if var == args.forcing_variables[0]:
                             N[t] = N[t]+1
 
@@ -645,14 +809,16 @@ def make_forcing_dataset(args):
         #         data = data[sname]
 
         #     for t, date in enumerate(dates):
-        #         # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
+        #         # Get the days in the current corresponding to the day in the loop 
+        #         # (may not be the same as t as current year may not be a leap year)
         #         ind = np.where( (date.day == days) & (date.month == months) )[0]
 
         #         # For non-leap years, ind can be empty; skip this day
         #         if len(ind) < 1:
         #             continue
         #         else:
-        #             forcings[sname.upper()][t,:,:] = np.nansum([forcings[sname.upper()][t,:,:], data[ind[0],:,:]], axis = 0) # np.nansum to account for any NaNs
+        #             forcings[sname.upper()][t,:,:] = np.nansum([forcings[sname.upper()][t,:,:], data[ind[0],:,:]], 
+        #                                                         axis = 0) # np.nansum to account for any NaNs
         #             if var == args.forcing_variables[0]:
         #                 N[t] = N[t] + 1
             
@@ -662,32 +828,50 @@ def make_forcing_dataset(args):
     for t, date in enumerate(dates):
         for var in args.forcing_variables:
             sname = get_var_shortname(var)
+
+            # Divide by the number of years in each date to get the climatological mean 
+            # and convert to float 32 to conserve space
             forcings[sname.upper()][t,:,:] = forcings[sname.upper()][t,:,:]/N[t]
 
             forcings[sname.upper()] = forcings[sname.upper()].astype(np.float32)
 
-    # Normalize the forcing data
+    # Normalize the forcing data to range from 0 to 1
     for var in args.forcing_variables:
         sname = get_var_shortname(var)
         forcings[sname.upper()] = forcings[sname.upper()]/np.nanmax(forcings[sname.upper()])
 
     print(np.nanmin(forcings[sname.upper()]), np.nanmax(forcings[sname.upper()]), np.nanmean(forcings[sname.upper()]))
 
-    # Fix for final version
-    make_zarr_group(forcings, lat, lon, time_final, args.forcing_variables, 2012, var_type = 'forcing')
+    # Create the forcing dataset zarr file
+    make_zarr_group(forcings, 
+                    lat, 
+                    lon, 
+                    time_final, 
+                    args.forcing_variables, 
+                    2012, 
+                    var_type = 'forcing')
 
-def make_static_dataset(args):
+def make_static_dataset(args) -> None:
     '''
-    Make the static dataset; has no time dimension (for static variables like land-sea mask, vegetation and soil types, etc.)
+    Make the static dataset; has no time dimension 
+    (for static variables like land-sea mask, vegetation and soil types, etc.)
+
+    :param args: Dictionary of parser arguments specified at the terminal. 
+                 Key arguments for this analysis are:
+                 --years, --pressure_levels, --reduce_scale, and --static_variables
     '''
+    # Load in a test dataset
     year = 2012
+    # Path and filename information
     path = path_to_raw_datasets('temperature', 'era5')
     filename = get_fn('temperature', year)
-    # Load test set
+
+    # Load the test set
     with Dataset('%s/%s.nc'%(path, filename), 'r') as nc:
         lat = nc.variables['lat'][:]
         lon = nc.variables['lon'][:]
 
+    # Initialize the final dataset
     data_end = {}
     for var in args.static_variables:
         # Load the data
@@ -697,27 +881,39 @@ def make_static_dataset(args):
             path = path_to_raw_datasets(var, 'modis')
             filename = get_fn(var, 2000)
 
-            # Load the MODIS land cover data (Note, this set does not have a date variable, and so cannot be loaded via load_nc)
+            # Load the MODIS land cover data 
+            # (Note, this set does not have a date variable, and so cannot be loaded via load_nc)
             data_old = {}
             with Dataset('%s/%s'%(path, filename), 'r') as nc:
-                data_old['lat'] = nc.variables['lat'][:,:].T/1e6 # Note the MODIS lat and lon here were multiplied by 1e6, presumable to keep them in integer form
+                # Note the MODIS lat and lon here were transposed and multiplied by 1e6, 
+                # presumably to keep them in integer form
+                data_old['lat'] = nc.variables['lat'][:,:].T/1e6 
                 data_old['lon'] = nc.variables['lon'][:,:].T/1e6
 
-                # The interpolation functions assumes a 3D array; initialize the land cover as 3D (axis 0 has length 1)
+                # The interpolation functions assumes a 3D array; 
+                # initialize the land cover as 3D (axis 0 has length 1)
                 I, J = data_old['lat'].shape
-                # J = data_old['lat'].size; I = data_old['lon'].size
                 data_old[sname] = np.ones((1, I, J))
 
-                # Load land cover; note there is room here to use other land cover types, percentage coverage, or assessments for use
+                # Load land cover; note there is room here to use other 
+                # land cover types, percentage coverage, or assessments for use
                 data_old[sname][0,:,:] = nc.variables['Majority_Land_Cover_Type_1'][:,:].T
 
             # Interpolate land cover data to ERA5 .25 degree resolution
             data = {}
-            data[sname] = interpolate_to_new_grid(data_old['lat'], data_old['lon'], data_old[sname], lat, lon, dataset = 'modis', resolution = 0.25)
+            data[sname] = interpolate_to_new_grid(data_old['lat'], 
+                                                  data_old['lon'], 
+                                                  data_old[sname], 
+                                                  lat, 
+                                                  lon, 
+                                                  dataset = 'modis', 
+                                                  resolution = 0.25)
+            
+            # Add latitude and longitude information
             data['lat'] = lat; data['lon'] = lon
             print(data[sname].shape)
 
-            # reduce scale of data to 1 deg x 1 deg
+            # reduce scale of data to 1 deg x 1 deg if desired
             if args.reduce_scale:
                 data_new, _, _ = reduce_spatial_scale(data, sname)
             else:
@@ -726,19 +922,28 @@ def make_static_dataset(args):
                 lat = data['lat'][:-1,:]; lon = data['lon'][:-1,:]
                 data_new = data[sname][:,:-1,:] # Latitude may need to be reversed
 
-            # Remove the unnecessary time axis
+            # With interpolation done, remove the unnecessary time axis
             data_new = data_new.squeeze()
 
             # Restore the land cover to integer labels
             data_new = np.round(data_new)
 
-        elif ('type' in var) | (('cover' in var) & np.invert(var == 'land_cover')): # For 'types' (vegetation type, soil type, etc.), load an average of the classification in time
+        # For vegetation cover and vegetation type (and soil type if added) variables
+        elif ('type' in var) | (('cover' in var) & np.invert(var == 'land_cover')): 
+            # Load in these static variables 
+            # (note they are averaged in time in the event there is any variation)
             sname = get_var_shortname(var)
-            data_new = load_static_type(var, args.years[0], args.years[1], reduce_scale = args.reduce_scale)
+            data_new = load_static_type(var, 
+                                        args.years[0], 
+                                        args.years[1], 
+                                        reduce_scale = args.reduce_scale)
+        
+        # Non-land cover and type variables fall in here 
+        # (e.g., lnad-sea mask)
         else:
             sname = get_var_shortname(var)
         
-            # Get filename
+            # Get filename and path information
             path = path_to_raw_datasets(var, 'era5')
             filename = get_fn(var, year)
             #filename = 'land'
@@ -750,34 +955,51 @@ def make_static_dataset(args):
                 data[sname] = nc.variables[sname][:,:,:]
                 data['lat'] = lat; data['lon'] = lon
 
-            # reduce scale of data to 1 deg x 1 deg
+            # reduce scale of data to 1 deg x 1 deg if deesired
             if args.reduce_scale:
                 data_new, lat, lon = reduce_spatial_scale(data, sname)
             else:
-                # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult to work with since 721 only has two primes (721=7*103)
+                # Note at quarter degree resolution, the grid is 721 x 1440, which is difficult 
+                # to work with since 721 only has two primes (721=7*103)
                 # So remove the -90 degree point to make the grid easier (720 = 2^4*3^2*5)
                 lat = data['lat'][:-1,:]; lon = data['lon'][:-1,:]
                 data_new = data[sname][:,:-1,:] # Latitude may need to be reversed
 
+            # Reduce variable to 2D
             data_new = data_new[0,:,:]
 
+        # For land cover type variables, round back to integer values
         if 'cover' not in var:
             data_new = np.round(data_new)
         #data_new[np.isnan(data_new) | (data_new == 0)] = 0.001
 
         print(np.nanmin(data_new), np.nanmax(data_new), np.nanmean(data_new))
+
+        # Add variable to the final dataset
         data_end[sname] = data_new
 
     # Calculate surface geopotential
-    data_end['surface_geopotential_var'] = calculate_surface_potential(args.years[0], args.years[1], reduce_scale = args.reduce_scale)
-    print(data_end['surface_geopotential_var'].shape, data_end['surface_geopotential_var'])
-    print(np.nanmin(data_end['surface_geopotential_var']), np.nanmax(data_end['surface_geopotential_var']), np.nanmean(data_end['surface_geopotential_var']))
+    data_end['surface_geopotential_var'] = calculate_surface_potential(args.years[0], 
+                                                                       args.years[1], 
+                                                                       reduce_scale = args.reduce_scale)
+    
+    print(data_end['surface_geopotential_var'].shape)
+    print(np.nanmin(data_end['surface_geopotential_var']), 
+          np.nanmax(data_end['surface_geopotential_var']), 
+          np.nanmean(data_end['surface_geopotential_var']))
 
+    # Add surface geopotential to the list of static variables
     static_variables = np.concatenate([args.static_variables, ['surface_geopotential_var']])
 
-    # create variable entry in zarr
-    make_zarr_group(data_end, lat, lon, None, static_variables, 2012, var_type = 'static', levels = args.pressure_levels)
-    
+    # Create the static dataset zarr file
+    make_zarr_group(data_end, 
+                    lat, 
+                    lon, 
+                    None, 
+                    static_variables, 
+                    2012, 
+                    var_type = 'static', 
+                    levels = args.pressure_levels)
     
 
 def create_parser():
@@ -787,6 +1009,7 @@ def create_parser():
     # Parse the command-line arguments
     parser = argparse.ArgumentParser(description='Data preprocessing', fromfile_prefix_chars='@')
 
+    # General arguments
     parser.add_argument('--reduce_scale', action='store_true', help='Reduce spatial resolution by a quarter (useful for training test models)')
     parser.add_argument('--additional-reanalysis', action='store_true', help='Replace certain variables with other datasets (e.g., replace precipitation with IMERG data), otherwise use only ERA5')
     parser.add_argument('--nthreads', type=int, default=4, help='Number of working threads for multiprocesses tasks (in make_statistics, make_forcing, and make_static)')
@@ -795,6 +1018,7 @@ def create_parser():
     parser.add_argument('--years', type=int, nargs=2, default=[2010,2020], help='Start and end years (inclusive) of climatology and statistics data')
     parser.add_argument('--year', type=int, default=0, help='Year of the data being processed (+ 2000)')
 
+    # List of variables in each listed dataset
     parser.add_argument('--pressure_levels', type=int, nargs='+', default=[200,500], help='Pressure levels to use when processing upper air variables')
     parser.add_argument('--upper_air_variables', type=str, nargs='+', default=['u','v'], help='Upper air variables used in training (also predicted by the model)')
     parser.add_argument('--surface_variables', type=str, nargs='+', default=['temperature', 'precipitation', 'pressure'], help='Surface variables used in the model (also they output by the model)')
@@ -803,6 +1027,7 @@ def create_parser():
     parser.add_argument('--static_variables', type=str, nargs='+', default=['land_sea'], help='Static variables that do no change in time (e.g., land-sea mask, land-cover, elevation, etc.)')
     parser.add_argument('--diagnostic_variables', type=str, nargs='+', default=['soil_moisture'], help='Variables the model will try to predict (output only)')
 
+    # Make certain dataset types
     parser.add_argument('--make_upper_air', action='store_true', help='Make upper air variable calculations and data creation (improves computation time; useful if the dataset is already present)')
     parser.add_argument('--make_surface', action='store_true', help='Make surface variable calculations and data creation (improves computation time; useful if the dataset is already present)')
     parser.add_argument('--make_dynamic', action='store_true', help='Make dynamic variable calculations and data creation (improves computation time; useful if the dataset is already present)')
@@ -815,16 +1040,15 @@ def create_parser():
 
     return parser
 
-    return
-
-
 if __name__ == '__main__':
     # Parse and check incoming arguments
     parser = create_parser()
     args = parser.parse_args()
 
+    # Determine the year to process
     args.year = args.year + 2000
 
+    # Define the lists of variables (shape datasets next to list)
     upper_air_variables = args.upper_air_variables # time x level x lat x lon
     surface_variables = args.surface_variables # time x lat x lon
     dynamic_variables = args.dynamic_variables # time x lat x lon
@@ -834,48 +1058,46 @@ if __name__ == '__main__':
 
     levels = args.pressure_levels # hPa/mb
 
+    # List of all years for climatology/forcing calculations
     years = np.arange(args.years[0], args.years[1]+1)
-    # upper_air_variables = ['u', 'v'] # time x level x lat x lon
-    # surface_variables = ['tair', 'sp', 'tp'] # time x lat x lon
-    # dynamic_variables = ['ssr'] # time x lat x lon
-    # diagnostic_variables = ['swvl1'] # time x lat x lon
-    # forcing_variables = ['SSR'] # time (366) x lat x lon
-    # static_variables = ['lsm'] # lat x lon
-    # levels = [500, 200] # hPa/mb
 
-    # years = [2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2018, 2019]
+    # Define the total number of years to examine
     N_years = len(years)
 
     # Make the climatology dataset
     if args.make_climatology and not args.make_statistics:
+        # Make only climatology zarr file
         make_climatology_dataset(args, make_climatology = True, make_statistics = False)
+
     elif args.make_statistics and not args.make_climatology:
+        # Make only statistics files
         make_climatology_dataset(args, make_climatology = False, make_statistics = True)
+
     elif args.make_climatology and args.make_statistics:
+        # Make climatology zarr file and statistics file
         make_climatology_dataset(args, make_climatology = True, make_statistics = True)
 
-    # Upper air variables
+    # Make upper air variables
     if args.make_upper_air:
         make_upper_air_dataset(args)
 
-    # Surface Variables
+    # Make surface Variables
     if args.make_surface:
         make_dataset(args, var_type = 'surface')
 
-    # Dynamic variables
+    # Make dynamic variables
     if args.make_dynamic:
         make_dataset(args, var_type = 'dynamic')
 
-    # Diagnostic variables
+    # Make diagnostic variables
     if args.make_diagnostic:
         make_dataset(args, var_type = 'diagnostic')
 
-
-    # Forcing variables
+    # Make forcing variables
     if args.make_forcing:
         make_forcing_dataset(args)
 
-    # Static variables
+    # Make static variables
     if args.make_static:
         make_static_dataset(args)
 

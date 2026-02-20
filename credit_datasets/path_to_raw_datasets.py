@@ -1,8 +1,9 @@
+"""Provides functions to construct directory paths, 
+filenames, and shortnames (used in zarr and .nc files)
+based on variable examined
+"""
 import numpy as np
-# For GLDAS: wind_speed: wspd, temperature: temp, evaporation: evap, potential_evaporation: pevap, precipitation: precip, pressure: pres, net_radiation: rnet, soil_moisture: soilm 
-# For IMERG: precipitation: precip
-# For MODIS: potential_evaporation: pevap, evaporation: pevap
-# TODO: Add pathing for MODIS and MODIS variables in path_to_raw_datasets, get_var_shortname, and get_fn
+
 AVAIL_VARIABLES = [
     'u', 
     'v', 
@@ -47,11 +48,27 @@ AVAIL_VARIABLES = [
     'fdii_2', 
     'fdii_3', 
     'fdii_4', 
-    'land-sea', 'mask', # These last two are different names for the same thing
+    'land-sea', 'mask', # These two are different names for the same thing
     'land_cover'
     ]
 
-def path_to_raw_datasets(variable, reanalysis = 'era5', level = None):
+def path_to_raw_datasets(
+        variable, 
+        reanalysis = 'era5', 
+        level = None
+        ) -> str:
+    '''
+    Construct a directory path to the raw data based 
+    on the variable and reanalysis the data belongs to
+    
+    Inputs:
+    :param variable: Name of the variable to point to
+    :param reanalysis: Name of the reanalysis the raw data is located in
+    :param level: Pressure level in mb/hPa (500 or 200) the data corresponds to (None if not upper air)
+    
+    Outputs:
+    :param path: Directory path to the raw data files for variable
+    '''
 
     base_path = '/ourdisk/hpc/ai2es/sedris/'
 
@@ -67,6 +84,7 @@ def path_to_raw_datasets(variable, reanalysis = 'era5', level = None):
     elif variable == 'radiation':
         dir_name = '%s/%s'%(reanalysis, 'radiation') if reanalysis == 'era5' else '%s/%s'%(reanalysis, 'net_radiation')
     elif variable == 'evaporation':
+        # Note the path has different style for MODIS
         if (reanalysis == 'era5') | (reanalysis == 'gldas'):
             dir_name = '%s/%s'%(reanalysis, 'evaporation')
         elif reanalysis == 'modis':
@@ -74,6 +92,7 @@ def path_to_raw_datasets(variable, reanalysis = 'era5', level = None):
     elif variable == 'potential_evaporation':
         if (reanalysis == 'era5') | (reanalysis == 'gldas'):
             dir_name = '%s/%s'%(reanalysis, 'potential_evaporation')
+        # Note the path has different style for MODIS
         elif reanalysis == 'modis':
             dir_name = '%s/global/%s'%(reanalysis, 'potential_evaporation')
     elif variable == 'ndvi':
@@ -93,6 +112,7 @@ def path_to_raw_datasets(variable, reanalysis = 'era5', level = None):
     elif (variable == 'soil_moisture_1') | (variable == 'soil_moisture_2') | (variable == 'soil_moisture_3') | (variable == 'soil_moisture_4'):
         if reanalysis == 'era5':
             dir_name = '%s/%s'%(reanalysis, 'liquid_vsm')
+        # For GLDAS, the path is different, as there is a different directory for each soil layer
         elif reanalysis == 'gldas':
             if variable == 'soil_moisture_1':
                 dir_name = '%s/%s'%(reanalysis, 'soil_moisture_0-10cm')
@@ -126,10 +146,20 @@ def path_to_raw_datasets(variable, reanalysis = 'era5', level = None):
 
     return path
 
-def get_var_shortname(variable, reanalysis = 'era5'):
-    # TODO:
-    # - Modify for wind speed and wind gust names
-    # - Modify to get snames from GLDAS, IMERG, and MODIS
+def get_var_shortname(
+        variable, 
+        reanalysis = 'era5'
+        ) -> str:
+    '''
+    Retrieve the short name of a variable (i.e., the variable's key in .nc files)
+
+    Inputs:
+    :param variable: Name of the variable investigated
+    :param reanalysis: Name of the reanalysis the raw data is located in
+
+    Outputs:
+    :param sname: Short name of the variable
+    '''
     
     # Get the short name of the variable
     if variable == 'temperature':
@@ -153,6 +183,7 @@ def get_var_shortname(variable, reanalysis = 'era5'):
     elif variable == 'radiation':
         sname = 'ssr' if reanalysis == 'era5' else 'rnet'
     elif variable == 'evaporation':
+        # Note the short name for ET is different depending on originating dataset
         if reanalysis == 'era5':
             sname = 'e'
         elif reanalysis == 'gldas':
@@ -160,6 +191,7 @@ def get_var_shortname(variable, reanalysis = 'era5'):
         elif reanalysis == 'modis':
             sname = 'pevap' # From a typo/error in making the MODIS nc files
     elif variable == 'potential_evaporation':
+        # Note the short name for PET is different depending on originating dataset
         if reanalysis == 'era5':
             sname = 'pev'
         elif reanalysis == 'gldas':
@@ -177,6 +209,7 @@ def get_var_shortname(variable, reanalysis = 'era5'):
     elif variable == 'total_specific_humidity':
         sname = 'q_tot'
     elif variable == 'wind_speed':
+        # Note the short name for wind speed is different depending on originating dataset
         sname = 'ws' if reanalysis == 'era5' else 'wspd'
     elif variable == 'wind_speed_u':
         sname = 'u10'
@@ -194,6 +227,7 @@ def get_var_shortname(variable, reanalysis = 'era5'):
         sname = 'pdo'
     elif variable == 'iod':
         sname = 'iod'
+    # Note the short name for soil moisture is different depending on originating dataset
     elif variable == 'soil_moisture_1':
         sname = 'swvl1' if reanalysis == 'era5' else 'soilm'
     elif variable == 'soil_moisture_2':
@@ -242,11 +276,26 @@ def get_var_shortname(variable, reanalysis = 'era5'):
     return sname
 
 # function to get base filename
-def get_fn(variable, year, reanalysis = 'era5', level = None):
+def get_fn(
+        variable, 
+        year, 
+        reanalysis = 'era5', 
+        level = None
+        ) -> str:
     '''
-    Collect filename
+    Construct the filename of the raw .nc dataset
+
+    Inputs:
+    :param variable: Name of the variable to point to
+    :param year: The year of the data to be loaded
+    :param reanalysis: Name of the reanalysis the raw data is located in
+    :param level: Pressure level in mb/hPa (500 or 200) the data corresponds to (None if not upper air)
+    
+    Outputs:
+    :param path: Directory path to the raw data files for variable
     '''
 
+    # Get the base of the filename (based on variable)
     if variable == 'u':
         base = 'u_component_of_wind_'
     elif variable == 'v':
@@ -260,6 +309,7 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
     elif variable == 'cloud_ice_water_content':
         base = 'specific_cloud_ice_water_content_'
     elif 'precipitation' in variable:
+        # Base of the file name is different depending on originating dataset
         if reanalysis == 'era5':
             base = 'total_precipitation_'
         elif reanalysis == 'gldas':
@@ -267,6 +317,7 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
         elif reanalysis == 'imerg':
             base = 'imerg.precipitation.daily.'
     elif variable == 'temperature':
+        # Base of the file name is different depending on originating dataset
         base = '2m_temperature_' if reanalysis == 'era5' else 'gldas.temperature.daily.'
     elif variable == 'dewpoint':
         base = '2m_dewpoint_temperature_'
@@ -275,6 +326,7 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
     elif variable == 'total_snow_water':
         base = 'total_column_snow_water_'
     elif variable == 'pressure':
+        # Base of the file name is different depending on originating dataset
         base = 'surface_pressure_' if reanalysis == 'era5' else 'gldas.pressure.daily.'
     elif variable == 'wind_speed_u':
         base = '10m_u_component_of_wind_'
@@ -285,6 +337,7 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
     elif variable == 'wind_gusts':
         base = '10m_wind_gust_since_previous_post_processing_'
     elif variable == 'evaporation':
+        # Base of the file name is different depending on originating dataset
         if reanalysis == 'era5':
             base = 'evaporation_'
         elif reanalysis == 'gldas':
@@ -292,6 +345,7 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
         elif reanalysis == 'modis':
             base = 'modis.evaporation.8-day.%d'%year # Adding year at the end excludes any oddly named files
     elif variable == 'potential_evaporation':
+        # Base of the file name is different depending on originating dataset
         if reanalysis == 'era5':
             base = 'potential_evaporation_'
         elif reanalysis == 'gldas':
@@ -325,6 +379,7 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
     elif variable == 'iod':
         return 'dmi.had.long'
     elif variable == 'radiation':
+        # Base of the file name is different depending on originating dataset
         base = 'surface_net_solar_radiation_' if reanalysis == 'era5' else 'gldas.net_radiation.daily.'
     elif variable == 'soil_moisture_1':
         base = 'volumetric_soil_water_layer_1_' if reanalysis == 'era5' else 'gldas.soil_moisture_0-10cm.daily.'
@@ -335,6 +390,7 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
     elif variable == 'soil_moisture_4':
         base = 'volumetric_soil_water_layer_4_' if reanalysis == 'era5' else 'gldas.soil_moisture_100-200cm.daily.'
     elif variable == 'sesr':
+        # Base of the file name is different depending on originating dataset
         if (reanalysis == 'era5') | (reanalysis == 'gldas'):
             base = 'sesr_'
         elif reanalysis == 'modis':
@@ -354,6 +410,8 @@ def get_fn(variable, year, reanalysis = 'era5', level = None):
         fn = 'modis.land_cover.nc'
         return fn
 
+    # Filenames not in MODIS have a standard structure; 
+    # MODIS filenames include an additional step in the path to the variable, based on the year
     if np.invert(reanalysis == 'modis'):
         fn = '%s%d'%(base, year) if level is None else '%s%d_%dmb'%(base, year, level)
     elif reanalysis == 'modis':
