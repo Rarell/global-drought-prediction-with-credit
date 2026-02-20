@@ -1,23 +1,53 @@
+"""Provides various functions to load different datasets
+Includes functions to load a dataset of climatology forecasts,
+persistence forecasts, and a set of performance metrics for a
+model, climatology, and persistence
+"""
+
 import numpy as np
 import pandas as pd
 import zarr
 
+from typing import Tuple
 from glob import glob
 from netCDF4 import Dataset
 from datetime import datetime, timedelta
 
 from utils import get_metric_information, new_sort
 
-# Define the variables skip in the analysis
+# Define the variables to skip over in the analysis
 skip_variables = ['time', 'latitude', 'longitude', 'forecast_step', 'datetime']
 
 ### Main TODO:
 ###    Make zarr name open more generic
 zarr.config.set({'default_zarr_format': 2})
 
-def load_climatology(var_name, month, day, Ndays = 30, level = None, clim_year = 2000, type = 'standard', path = 'test_data'):
+def load_climatology(
+        var_name, 
+        month, 
+        day, 
+        Ndays = 30, 
+        level = None, 
+        clim_year = 2000, 
+        type = 'standard', 
+        path = 'test_data'
+        ) -> np.ndarray:
     '''
-    Load 30-days of climatology data
+    Load N-days of climatology data
+
+    Inputs:
+    :param var_name: Short name of the variable to load (e.g., the variable key in the zarr file)
+    :param month: Month value of the start day in the loaded dataset
+    :param day: Day value of the start day in the loaded dataset
+    :param Ndays: Number of days to load in the climatology set
+    :param level: Pressure level index for upper air variables (i.e., 0 for 200 mb data, 1 for 500 mb data, None for non-upper air variables)
+    :param clim_year: The year of a dataset the climatology data will be compared to (determines whether to include leap day in loaded climatology data)
+    :param type: Type of prediction dataset is for ('running' for the climatological mean value for the respective date, 
+                 'standard' for using the same value as the start date for all predictions, similar to persistence)
+    :param path: Directory path pointing to climatology dataset
+
+    Outputs:
+    :param climatology: Loaded dataset of climatological means (np.ndarray with shape time x lat x lon)
     '''
 
     # Load the climatology data for a given variable
@@ -26,13 +56,17 @@ def load_climatology(var_name, month, day, Ndays = 30, level = None, clim_year =
     times = root['time'][:]
     times = pd.to_datetime(times).to_numpy(dtype = datetime)
 
+    # Reduce the data to 3D for upper air variables
     if level is not None:
         climatology = climatology[:,level,:,:]
 
+    # Construct the starting day of the data to load (note a special case if the last day of the year is loaded)
     if (month == 12) & (day == 31):
         start_day = datetime(1999, month, day) + timedelta(days = 1) # Special case for end of year
     else:
         start_day = datetime(2000, month, day) + timedelta(days = 1)
+
+    # Construct the end date of the loaded dataset
     end_day = start_day + timedelta(days = Ndays)
     
 
@@ -40,25 +74,35 @@ def load_climatology(var_name, month, day, Ndays = 30, level = None, clim_year =
         # Make climatology forecasts based on the start day only
         ind = np.where(times == start_day)[0]
         tmp = climatology[ind,:,:]
+
+        # Repeat the same set of values Nday times
         tmp_clim = np.ones((Ndays, climatology.shape[1], climatology.shape[2]))
         for t in range(Ndays):
             tmp_clim[t,:,:] = tmp
 
         climatology = tmp_clim
+
     elif type == 'running':
-        # Extract the data for 1 day after initial time (persistence forecast = predicting what happened the day before)
+        # Make climatology forecasts based on date in the year
+
         if (end_day.year > start_day.year):
             # If the predictions are near the end of year (the prediction window extends into the next year)
             # make sure to include everything in the next year
+
+            # For climatology dataset, there is only 1 year of data, so set the year back by one and continue to ending month and day
             end_day_new = datetime(end_day.year-1, end_day.month, end_day.day)
 
+            # Obtain the corresponding indices to the end of year, then after the new year
             ind = np.where(times >= start_day)[0]
             ind_tmp = np.where(times <= end_day_new)[0]
+
+            # Merge the two sets of indices
             ind = np.concatenate([ind, ind_tmp])
             end_day = end_day_new
 
 
         else:
+            # Collect all indices between the start and end days
             ind = np.where((times >= start_day) & (times <= end_day))[0]
 
         clim_year = clim_year + 1 if month >= 10 else clim_year # A correction if the prediction starts at the end of the year
@@ -66,30 +110,59 @@ def load_climatology(var_name, month, day, Ndays = 30, level = None, clim_year =
         # Collect the index for the leap day
         leap_day = datetime(2000,2,29)
         ind_leap_day = np.where(times == leap_day)[0]
+
+        # For comparison with predicted datasets, the leap day needs to be excluded for non-leap years; determine if this needs to be done
         leap_year = ((clim_year % 4) == 0) | ((clim_year + 1) % 4 == 0)
         last_day = ((month == 12) & (day == 31))
+
+        # If the leap day needs to be removed from the dataset
         if np.invert(leap_year) & (ind_leap_day in ind):
             # Remove the leap day climatology for non-leap years 
             ind = np.delete(ind, ind_leap_day == ind)
 
-            # Add a new index to make up for the lost day and maintain length 91
+            # Add a new index to make up for the lost day and maintain length Ndays + 1
             # Note het correction above collects an extra day for months >= 10, so that one does not need an extra day
             ind = np.append(ind, ind[-1]+1) if (month < 3) | last_day else ind
+
+        # If the leap day does not need to be removed
         elif (leap_year & (ind_leap_day in ind)) & (month >= 9) & np.invert(last_day):
             ind = ind[:-1]
 
+        # Subset out the required climatology days
         climatology = climatology[ind,:,:]
         climatology = climatology[1:]
 
     return climatology
 
 
-def load_persistence(var_name, data_type, year, month, day, Ndays = 30, level = None, type = 'standard', path = 'test_data'):
+def load_persistence(
+        var_name, 
+        data_type, 
+        year, 
+        month, 
+        day, 
+        Ndays = 30, 
+        level = None,  
+        type = 'standard', 
+        path = 'test_data'
+        ) -> np.ndarray:
     '''
-    Load persistence forecast for 30-days
+    Load persistence forecast for N-days
 
-    TODO:
-    Add if block for u and v wind
+    Inputs:
+    :param var_name: Short name of the variable to load (e.g., the variable key in the zarr file)
+    :param year: Year value of the start day in the loaded dataset
+    :param month: Month value of the start day in the loaded dataset
+    :param day: Day value of the start day in the loaded dataset
+    :param Ndays: Number of days to load in the climatology set
+    :param level: Pressure level index for upper air variables (i.e., 0 for 200 mb data, 1 for 500 mb data, None for non-upper air variables)
+    :param clim_year: The year of a dataset the climatology data will be compared to (determines whether to include leap day in loaded climatology data)
+    :param type: Type of prediction dataset is for ('running' for the true label one day prior prediction for each respective date similar to climatology, 
+                 'standard' for using the same value as the start date for all predictions)
+    :param path: Directory path pointing to the true labels
+
+    Outputs:
+    :param persistence: Loaded dataset of persistence means (np.ndarray with shape time x lat x lon)
     '''
 
     # Load the data for a given variable
@@ -98,9 +171,11 @@ def load_persistence(var_name, data_type, year, month, day, Ndays = 30, level = 
     times = root['time'][:]
     times = pd.to_datetime(times).to_numpy(dtype = datetime)
 
+    # Reduce the data to 3D for upper air variables
     if level is not None:
         persistence = persistence[:,level,:,:]
 
+    # Construct the starting and ending day of the data to load
     start_day = datetime(year, month, day) # + timedelta(days = 1)
     end_day = start_day + timedelta(days = Ndays)
 
@@ -109,6 +184,8 @@ def load_persistence(var_name, data_type, year, month, day, Ndays = 30, level = 
         ind = np.where(times == start_day)[0]
 
         tmp = persistence[ind,:,:]
+
+        # Repeat the same set of values Nday times
         tmp_persist = np.ones((Ndays, persistence.shape[1], persistence.shape[2]))
         for t in range(Ndays):
             tmp_persist[t,:,:] = tmp
@@ -124,6 +201,7 @@ def load_persistence(var_name, data_type, year, month, day, Ndays = 30, level = 
             times_new = root_new['time'][:]
             times_new = pd.to_datetime(times_new).to_numpy(dtype = datetime)
 
+            # Reduce the data for the next year to 3D for upper air variables
             if level is not None:
                 persistence_new = persistence_new[:,level,:,:]
             
@@ -131,29 +209,54 @@ def load_persistence(var_name, data_type, year, month, day, Ndays = 30, level = 
             persistence = np.concatenate([persistence, persistence_new])
             times = np.concatenate([times, times_new])
 
+        # Collect the data for the selected days
         ind = np.where((times >= start_day) & (times <= end_day))[0]
         persistence = persistence[ind,:,:]
         persistence = persistence[1:]
 
     return persistence
 
-def load_metrics(rotations, dates, rotation_years, subset = None, forecast_length = 90, 
-                 path_to_data = './results', 
-                 paths_to_rotation = {0: './results/rotation_00', 'single_run': '../results/one_experiment_run'}):
+def load_metrics(
+        rotations, 
+        dates, 
+        rotation_years, 
+        subset = None, 
+        forecast_length = 90, 
+        path_to_data = './results', 
+        paths_to_rotation = {0: './results/rotation_00', 'single_run': '../results/upsampling'}# '../results/one_experiment_run'}
+        ) -> Tuple[dict, dict, dict]:
     '''
+    Load a set of performance metrics for all variables for a CrossFormer model, climatology, and persistence
+
+    Inputs:
+    :param rotations: List of all rotations being loaded
+    :param dates: List of all dates in the full dataset
+    :param rotation_years: Dictionary where each key is a rotation, each entry containing a list of years contained within the given rotation
+    :param subset: Name of the subset region being loaded (e.h., africa, nh, conus, etc.)
+    :param forecast_length: Number of days in the forecasts loaded (e.g., 90 for a 90-day forecast)
+    :param path_to_data: Directory path pointing to where the metric data is pointing (has climatology and persistence directories for those metrics)
+    :param paths_to_rotation: Dictionary with keys of rotation numbers or 'one_experiment_run', each entry is a directory path to the model performance metrics
+
+    Outputs:
+    :param metric_list: Dictionary for each variable and metric, each entry containing an
+                        array of model performance metrics (np.ndarray with shape N_forecasts/time x forecast_length)
+    :param clim_list: Dictionary for each variable and metric, each entry containing an
+                      array of climatology performance metrics (np.ndarray with shape N_forecasts/time x forecast_length)
+    :param persist_list: Dictionary for each variable and metric, each entry containing an
+                         array of persistence performance metrics (np.ndarray with shape N_forecasts/time x forecast_length)
     '''
 
     # Initial list metrics; load in a test set of metrics that is known to exist
     if subset is None:
         metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(paths_to_rotation[0], 2023), sep = ',',
         # metrics_initial = pd.read_csv('%s/forecasts/metrics/2020-01-01T00Z.csv'%(paths_to_rotation['single_run']), sep = ',',
-                                    header = 0, index_col = 0, nrows = forecast_length) # Read 90 rows for all forecasts 
+                                    header = 0, index_col = 0, nrows = forecast_length) # Read forecast_length number of rows 
     else: 
         metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z_africa.csv'%(paths_to_rotation[0], 2023), sep = ',',
         # metrics_initial = pd.read_csv('%s/forecasts/metrics/2020-01-01T00Z.csv'%(paths_to_rotation['single_run']), sep = ',',
-                                    header = 0, index_col = 0, nrows = forecast_length) # Read 90 rows for all forecasts 
+                                    header = 0, index_col = 0, nrows = forecast_length) # Read forecast_length number of rows 
     
-    # Loop through the rotations and load performance metric based on said rotations, for plotting
+    # Loop through the rotations and load performance metrics based on said rotations
     metrics = {}
     climatology = {}
     persistence = {}
@@ -174,6 +277,7 @@ def load_metrics(rotations, dates, rotation_years, subset = None, forecast_lengt
         # Collect all files to load
         if subset is None:
             files = glob('%s/*T00Z.csv'%(data_path), recursive = True)
+            # Special case for the final run which uses 2020 and 2021 for test years
             if rot == 'single_run':
                 clim_files = np.concatenate([
                     glob('%s/climatology/rotation_10/clim_2020*.nc'%(path_to_data), recursive = True),
@@ -183,11 +287,13 @@ def load_metrics(rotations, dates, rotation_years, subset = None, forecast_lengt
                     glob('%s/persistence/rotation_10/persist_2020*.nc'%(path_to_data), recursive = True),
                     glob('%s/persistence/rotation_11/persist_2021*.nc'%(path_to_data), recursive = True)
                 ])
+            # More general case when results are split into rotations
             else:
                 clim_files = glob('%s/climatology/rotation_%02d/clim_*.nc'%(path_to_data, rot), recursive = True)
                 persist_files = glob('%s/persistence/rotation_%02d/persist_*.nc'%(path_to_data, rot), recursive = True)
         else:
             files = glob('%s/*T00Z_%s.csv'%(data_path, subset), recursive = True)
+            # Special case for the final run which uses 2020 and 2021 for test years
             if rot == 'single_run':
                 clim_files = np.concatenate([
                     glob('%s/climatology/rotation_10/%s_clim_2020*.nc'%(path_to_data, subset), recursive = True),
@@ -197,41 +303,45 @@ def load_metrics(rotations, dates, rotation_years, subset = None, forecast_lengt
                     glob('%s/persistence/rotation_10/%s_persist_2020*.nc'%(path_to_data, subset), recursive = True),
                     glob('%s/persistence/rotation_11/%s_persist_2021*.nc'%(path_to_data, subset), recursive = True)
                 ])
+            # More general case when results are split into rotations
             else:
                 clim_files = glob('%s/climatology/rotation_%02d/%s_clim_*.nc'%(path_to_data, rot, subset), recursive = True)
                 persist_files = glob('%s/persistence/rotation_%02d/%s_persist_*.nc'%(path_to_data, rot, subset), recursive = True)
         
-        # Select out only those climatology and persistence files that correspond to the rotation being loaded
+        # Select out only those files correspond to the rotation being loaded
         ind = [np.where(date == dates)[0][0] for date in rotation_dates]
         print('ind length: ', len(ind))
+
+        # Select out the files (sort at the same time)
+        # and ensure the same number of files is being loaded as climatology/persistence files
         if len(files) > len(clim_files):
             files = new_sort(files)[:len(clim_files)]
         #     clim_files = new_sort(clim_files)[:len(files)]
         #     persist_files = new_sort(persist_files)[:len(files)]
-        # else:
-        #     clim_files = new_sort(clim_files)
-        #     persist_files = new_sort(persist_files)
-        clim_files = new_sort(clim_files)#[:-2] if subset is None else new_sort(clim_files)#[ind] #if (subset is None) & np.invert(rot == 0) else new_sort(clim_files)
-        persist_files = new_sort(persist_files)#[:-2] if subset is None else new_sort(persist_files)#[ind] #if (subset is None) & np.invert(rot == 0) else new_sort(persist_files)
+        
+        # Sort climatology and persistence files
+        clim_files = new_sort(clim_files)
+        persist_files = new_sort(persist_files)
 
         print(len(clim_files))
         print(len(files))
 
         # Load the metric data + climatology and persistence data
         for m, file in enumerate(new_sort(files)):
+            # Load performance metrics for the model
             metrics[n] = pd.read_csv(file, sep = ',',
                                     names = metrics_initial.columns, 
                                     index_col = 0, 
                                     header = 0,
                                     nrows = forecast_length)
             
-            # Load climatology metrics
+            # Load performance metrics for climatology
             with Dataset(clim_files[m], 'r') as nc:
                 climatology[n] = {}
                 for key in nc.variables.keys():
                     climatology[n][key] = nc.variables[key][:]
 
-            # Load persistence metrics
+            # Load performance metrics for persistence
             with Dataset(persist_files[m], 'r') as nc:
                 persistence[n] = {}
                 for key in nc.variables.keys():
@@ -239,7 +349,7 @@ def load_metrics(rotations, dates, rotation_years, subset = None, forecast_lengt
 
             n = n + 1
     
-    print(n)
+    # print(n)
 
     # Reorganize data to time x forecast day
     metric_list = {}
@@ -260,11 +370,12 @@ def load_metrics(rotations, dates, rotation_years, subset = None, forecast_lengt
         clim_list[metric] = []
         persist_list[metric] = []
         for key in metrics.keys():
-            # Get the metric
+            # Get the metric (each list entry has length forecast_length)
             metric_list[metric].append(metrics[key][metric])
             clim_list[metric].append(climatology[key][metric])
             persist_list[metric].append(persistence[key][metric])
 
+        # Turn the lists into arrays (they will stack along axis = 0, to give the shape N_forecasts x forecast_length)
         metric_list[metric] = np.array(metric_list[metric])
         clim_list[metric] = np.array(clim_list[metric])
         persist_list[metric]= np.array(persist_list[metric])

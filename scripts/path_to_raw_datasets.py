@@ -1,4 +1,9 @@
+"""Provides functions to construct directory paths, 
+filenames, and shortnames (used in zarr and .nc files)
+based on variable examined
+"""
 
+# List of available variables in the complete dataset
 AVAIL_VARIABLES = [
     'u', 
     'v', 
@@ -37,11 +42,23 @@ AVAIL_VARIABLES = [
     'land-sea', 'mask', # These last two are different names for the same thing
     ]
 
-def path_to_raw_datasets(variable, reanalysis, level = None):
-    # TODO:
-    # - Modify to allow paths for GLDAS (radiation and soil moisture directory names are different)
-    # - Modify to allow paths for IMERG
-    # - Modify to allow for MODIS (files are in modis/global directory)
+def path_to_raw_datasets(
+        variable, 
+        reanalysis, 
+        level = None
+        ) -> str:
+    '''
+    Construct a directory path to the raw data based 
+    on the variable and reanalysis the data belongs to
+    
+    Inputs:
+    :param variable: Name of the variable to point to
+    :param reanalysis: Name of the reanalysis the raw data is located in
+    :param level: Pressure level in mb/hPa (500 or 200) the data corresponds to (None if not upper air)
+    
+    Outputs:
+    :param path: Directory path to the raw data files for variable
+    '''
 
     base_path = '/ourdisk/hpc/ai2es/sedris/'
 
@@ -88,10 +105,16 @@ def path_to_raw_datasets(variable, reanalysis, level = None):
 
     return path
 
-def get_var_shortname(variable):
-    # TODO:
-    # - Modify for wind speed and wind gust names
-    # - Modify to get snames from GLDAS, IMERG, and MODIS
+def get_var_shortname(variable) -> str:
+    '''
+    Retrieve the short name of a variable (i.e., the variable's key in .nc files)
+
+    Inputs:
+    :param variable: Name of the variable investigated
+
+    Outputs:
+    :param sname: Short name of the variable
+    '''
     
     # Get the short name of the variable
     if variable == 'temperature':
@@ -174,11 +197,24 @@ def get_var_shortname(variable):
     return sname
 
 # function to get base filename
-def get_fn(variable, year, level = None):
+def get_fn(
+        variable, 
+        year, 
+        level = None
+        ) -> str:
     '''
-    Collect filename
+    Construct the filename of the raw .nc dataset
+
+    Inputs:
+    :param variable: Name of the variable to point to
+    :param year: The year of the data to be loaded
+    :param level: Pressure level in mb/hPa (500 or 200) the data corresponds to (None if not upper air)
+    
+    Outputs:
+    :param path: Directory path to the raw data files for variable
     '''
 
+    # Get the base of the filename (based on variable)
     if variable == 'u':
         base = 'u_component_of_wind_'
     elif variable == 'v':
@@ -245,6 +281,7 @@ def get_fn(variable, year, level = None):
         fn = 'land.nc' # For the land-sea mask, only 1 nc is needed, not a suite for each year
         return fn
 
+    # Construct the filename
     fn = '%s%d'%(base, year) if level is None else '%s%d_%dmb'%(base, year, level)
 
     return fn

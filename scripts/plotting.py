@@ -1,4 +1,10 @@
+"""Set of functions for general plotting purposes
+
+Functions designed to create different types of figures to analyze predictive skill ML models
+"""
+
 import numpy as np
+from typing import Tuple
 from scipy import fft
 from datetime import datetime, timedelta
 from functools import partial
@@ -25,6 +31,7 @@ from path_to_raw_datasets import get_var_shortname
 from metric_calculations import calculate_acc_in_space, calculate_rmse_in_space
 from utils import least_squares, new_sort
 
+# Shortened versions of variable names
 variables = {
     '200 mb u': 'U Wind', '500 mb u': 'U Wind',
     '200 mb v': 'V Wind', '500 mb v': 'V Wind',
@@ -49,6 +56,8 @@ variables = {
     'fdii1': 'FDII', 'fdii2': 'FDII', 'fdii3': 'FDII', 'fdii4': 'FDII',
     'sesr': 'SESR'
 }
+
+# Variable full names
 full_names = {
     '200 mb u': '200 mb U Wind', '500 mb u': '500 mb U Wind',
     '200 mb v': '200 mb V Wind', '500 mb v': '500 mb V Wind',
@@ -79,6 +88,8 @@ full_names = {
     'fdii4': '100 - 200 cm FDII',
     'sesr': 'SESR'
 }
+
+# Predefined information on variable units
 units = {
     '200 mb u': r'm s$^{-1}$', '500 mb u': r'm s$^{-1}$',
     '200 mb v': r'm s$^{-1}$', '500 mb v': r'm s$^{-1}$',
@@ -99,6 +110,8 @@ units = {
     'fdii1': 'unitless', 'fdii2': 'unitless', 'fdii3': 'unitless', 'fdii4': 'unitless',
     'sesr': 'unitless'
 }
+
+# Predefined color information for maps
 color_information = {
     '200 mb u': {'climits': [-60, 60], 'climits_metric': [3, 20], 'hist_values': [-25, 65.5], 'max_counts': 350, 'cname': 'PuOr'}, 
     '500 mb u': {'climits': [-40, 40], 'climits_metric': [3, 15], 'hist_values': [-20, 40.5], 'max_counts': 300, 'cname': 'PuOr'},
@@ -108,26 +121,26 @@ color_information = {
     '500 mb z': {'climits': [49000, 59000], 'climits_metric': [0, 2000], 'hist_values': [51000, 58500], 'max_counts': 800, 'cname': 'RdBu_r'},
     '200 mb q_tot': {'climits': [0, 1.5e-4], 'climits_metric': [1e-5, 8e-5], 'hist_values': [0, 0.00055], 'max_counts': 800, 'cname': 'BrBG'}, 
     '500 mb q_tot': {'climits': [0, 0.004], 'climits_metric': [0.0005, 0.0020], 'hist_values': [0, 0.0085], 'max_counts': 600, 'cname': 'BrBG'},
-    'tair': {'climits': [210, 330], 'climits_metric': [0.5, 5.5], 'hist_values': [260, 315], 'max_counts': 300, 'cname': 'RdBu_r'},
+    'tair': {'climits': [210, 330], 'climits_metric': [0.5, 4.5], 'hist_values': [276, 313], 'max_counts': 150, 'cname': 'RdBu_r'},
     'sp': {'climits': [80000, 105000], 'climits_metric': [1000, 4000], 'hist_values': [70000, 105900], 'max_counts': 700, 'cname': 'RdBu_r'},
-    'd2m':  {'climits': [200, 320], 'climits_metric': [0.5, 9.5], 'hist_values': [250, 305], 'max_counts': 300, 'cname': 'BrBG'}, # Fine tune
-    'tp': {'climits': [0, 10.0], 'climits_metric': [2.0, 25.0], 'hist_values': [0, 105.0], 'max_counts': 1000, 'cname': 'Greens'}, # Max color count, if used, is around 600 - 700
+    'd2m':  {'climits': [200, 320], 'climits_metric': [0.5, 7.5], 'hist_values': [271, 303], 'max_counts': 150, 'cname': 'BrBG'}, # Fine tune
+    'tp': {'climits': [0, 10.0], 'climits_metric': [2.0, 10.0], 'hist_values': [0, 65.0], 'max_counts': 600, 'cname': 'Greens'}, # Max color count, if used, is around 600 - 700
     'tp_7d': {'climits': [0, 10.0], 'climits_metric': [2.0, 25.0], 'hist_values': [0, 350.0], 'max_counts': 1000, 'cname': 'Greens'}, # Fine tune
     'tp_14d': {'climits': [0, 200.0], 'climits_metric': [2.0, 25.0], 'hist_values': [0, 750.0], 'max_counts': 1000, 'cname': 'Greens'}, # Fine tune
-    'tp_30d': {'climits': [0, 500.0], 'climits_metric': [2.0, 100.0], 'hist_values': [0, 1250.0], 'max_counts': 1000, 'cname': 'Greens'},
-    'e': {'climits': [-5.0, 5.00], 'climits_metric': [0.1, 5.0], 'hist_values': [-6.0, 7.0], 'max_counts': 500, 'cname': 'BrBG'}, 
-    'pev': {'climits': [0, 15.0], 'climits_metric': [0.5, 6.0], 'hist_values': [0, 18.0], 'max_counts': 500, 'cname': 'BrBG_r'}, 
-    'evi': {'climits': [0, 0.6], 'climits_metric': [0.01, 0.4], 'hist_values': [0, 0.6], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE
-    'ndvi': {'climits': [0, 1.0], 'climits_metric': [0.01, 0.4], 'hist_values': [0, 1.0], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE
-    'fpar': {'climits': [0, 1.0], 'climits_metric': [0.01, 0.4], 'hist_values': [0, 0.9], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE
-    'lai': {'climits': [0, 4.5], 'climits_metric': [0.0001, 0.4], 'hist_values': [0, 4.5], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE  
+    'tp_30d': {'climits': [0, 300.0], 'climits_metric': [2.0, 100.0], 'hist_values': [0, 440.0], 'max_counts': 200, 'cname': 'Greens'},
+    'e': {'climits': [-5.0, 5.00], 'climits_metric': [0.1, 1.5], 'hist_values': [-2.0, 7.0], 'max_counts': 150, 'cname': 'BrBG'}, 
+    'pev': {'climits': [0, 15.0], 'climits_metric': [0.5, 3.5], 'hist_values': [0, 18.0], 'max_counts': 150, 'cname': 'BrBG_r'}, 
+    'evi': {'climits': [0, 0.6], 'climits_metric': [0.01, 0.1], 'hist_values': [0, 0.6], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE
+    'ndvi': {'climits': [0, 1.0], 'climits_metric': [0.01, 0.13], 'hist_values': [0, 1.0], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE
+    'fpar': {'climits': [0, 1.0], 'climits_metric': [0.01, 0.3], 'hist_values': [0, 0.9], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE
+    'lai': {'climits': [0, 4.5], 'climits_metric': [0.0001, 0.9], 'hist_values': [0, 4.5], 'max_counts': 100, 'cname': 'BrBG'}, ### FINE TUNE  
     'cvh': {'climits': [0, 1.0], 'climits_metric': [0.030, 0.40], 'cname': 'BrBG'},
     'cvl': {'climits': [0, 1.0], 'climits_metric': [0.030, 0.30], 'cname': 'BrBG'}, 
     'ssr': {'climits': [0, 30000000], 'cname': 'Reds'}, # Fine tune
     'ws':  {'climits': [0, 20], 'cname': 'PuOr'}, # Fine tune
     'fg10': {'climits': [0, 25], 'cname': 'PuOr'}, # Fine tune
-    'swvl1': {'climits': [0, 55], 'climits_metric': [2.1, 6.65], 'hist_values': [0, 45.5], 'max_counts': 300, 'cname': 'BrBG'}, # Max color count, if used, is around 25
-    'swvl2': {'climits': [0, 55], 'climits_metric': [2.1, 13.5], 'hist_values': [0, 45.5], 'max_counts': 300, 'cname': 'BrBG'},
+    'swvl1': {'climits': [0, 55], 'climits_metric': [2.1, 6.65], 'hist_values': [0, 45.5], 'max_counts': 150, 'cname': 'BrBG'}, # Max color count, if used, is around 25
+    'swvl2': {'climits': [0, 55], 'climits_metric': [2.1, 25.5], 'hist_values': [0, 55.5], 'max_counts': 400, 'cname': 'BrBG'},
     'swvl3': {'climits': [0, 55], 'climits_metric': [2.1, 18.0], 'hist_values': [0, 45.5], 'max_counts': 300, 'cname': 'BrBG'},
     'swvl4': {'climits': [0, 55], 'climits_metric': [2.1, 24.0], 'hist_values': [0, 45.5], 'max_counts': 300, 'cname': 'BrBG'},
     'fdii1': {'climits': [0, 50], 'climits_metric': [0.1, 10.0], 'hist_values': [0, 20.5], 'max_counts': 1000, 'cname': 'Spectral_r'},
@@ -136,6 +149,8 @@ color_information = {
     'fdii4': {'climits': [0, 50], 'climits_metric': [0.1, 8.0], 'hist_values': [0, 20.5], 'max_counts': 1000, 'cname': 'Spectral_r'},
     'sesr': {'climits': [-3.0, 3.0], 'climits_metric': [0.0, 3.0], 'hist_values': [-3, 3], 'max_counts': 500, 'cname': 'BrBG'} 
 }
+
+# Predefined information on subset regions
 subset_information = {
     'africa': {'map_extent': [-35, 35, 335, 53], 'wspace': 0.18, 'hspace': -0.40, 'hspace_anomaly': 0.15, 'wspace_metric': 0.17,
             #    'colorbar_coord': [[0.925, 0.535, 0.020, 0.21], [0.925, 0.235, 0.020, 0.21]],
@@ -150,56 +165,88 @@ subset_information = {
     'south central': {'map_extent': [29, 36, 258, 274], 'wspace': 0.18, 'wspace_metric': 0.17}
 }
 
+# Predefined information on anomaly maps
 anomaly_plotting_information = {
-    'tair':  {'climits': [-15, 15], 'difference_climits': [-10, 10], 'color_true': '#8C000F', 'color_pred': '#DC143C'},
-    'd2m':  {'climits': [-15, 15], 'difference_climits': [-15, 15], 'color_true': '#054907', 'color_pred': '#15B01A'}, # Fine tune
-    'tp': {'climits': [-30, 30], 'difference_climits': [-50, 50], 'color_true': '#054907', 'color_pred': '#15B01A'}, # Max color count, if used, is around 600 - 700
-    'tp_30d': {'climits': [-100, 100], 'difference_climits': [-200, 200], 'color_true': '#054907', 'color_pred': '#15B01A'},
-    'e': {'climits': [-4.0, 4.0], 'difference_climits': [-4.0, 4.0], 'color_true': '#00008B', 'color_pred': '#069AF3'}, 
-    'pev': {'climits': [-10.0, 10.0], 'difference_climits': [-8.0, 8.0], 'color_true': '#00008B', 'color_pred': '#069AF3'}, 
-    'evi': {'climits': [-0.15, 0.15], 'difference_climits': [-0.15, 0.15], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE
-    'ndvi': {'climits': [-0.3, 0.3], 'difference_climits': [-0.4, 0.4], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE
-    'fpar': {'climits': [-0.3, 0.3], 'difference_climits': [-0.4, 0.4], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE
-    'lai': {'climits': [-2.0, 2.0], 'difference_climits': [-2.5, 2.5], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE  
-    'swvl1': {'climits': [-20, 20], 'difference_climits': [-10, 10], 'color_true': '#00008B', 'color_pred': '#069AF3'}, # Max color count, if used, is around 25
-    'swvl2': {'climits': [-40, 40], 'difference_climits': [-45, 45], 'color_true': '#00008B', 'color_pred': '#069AF3'},
-    'swvl3': {'climits': [-40, 40], 'difference_climits': [-45, 45], 'color_true': '#00008B', 'color_pred': '#069AF3'},
-    'swvl4': {'climits': [-40, 40], 'difference_climits': [-45, 45], 'color_true': '#00008B', 'color_pred': '#069AF3'},
-    'fdii1': {'climits': [-20, 20], 'difference_climits': [-20, 20]},
-    'fdii2': {'climits': [-20, 20], 'difference_climits': [-20, 20]},
-    'fdii3': {'climits': [-30, 30], 'difference_climits': [-30, 30]},
-    'fdii4': {'climits': [-30, 30], 'difference_climits': [-30, 30]},
-    'sesr': {'climits': [-3.0, 3.0], 'difference_climits': [-3.0, 3.0]} 
+    'tair':  {'climits': [-15, 15], 'cint': 3,'difference_climits': [-6, 6], 'color_true': '#8C000F', 'color_pred': '#DC143C'},
+    'd2m':  {'climits': [-15, 15], 'cint': 5,'difference_climits': [-10, 10], 'color_true': '#054907', 'color_pred': '#15B01A'}, # Fine tune
+    'tp': {'climits': [-30, 30], 'cint': 10, 'difference_climits': [-30, 30], 'color_true': '#054907', 'color_pred': '#15B01A'}, # Max color count, if used, is around 600 - 700
+    'tp_30d': {'climits': [-100, 100], 'cint': 75, 'difference_climits': [-150, 150], 'color_true': '#054907', 'color_pred': '#15B01A'},
+    'e': {'climits': [-3.0, 3.0], 'cint': 1, 'difference_climits': [-2.0, 2.0], 'color_true': '#00008B', 'color_pred': '#069AF3'}, 
+    'pev': {'climits': [-8.0, 8.0], 'cint': 2, 'difference_climits': [-4.0, 4.0], 'color_true': '#00008B', 'color_pred': '#069AF3'}, 
+    'evi': {'climits': [-0.15, 0.15], 'cint': 0.075, 'difference_climits': [-0.15, 0.15], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE
+    'ndvi': {'climits': [-0.3, 0.3], 'cint': 0.2, 'difference_climits': [-0.4, 0.4], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE
+    'fpar': {'climits': [-0.3, 0.3], 'cint': 0.2, 'difference_climits': [-0.4, 0.4], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE
+    'lai': {'climits': [-2.0, 2.0], 'cint': 1, 'difference_climits': [-3.0, 3.0], 'color_true': '#054907', 'color_pred': '#15B01A'}, ### FINE TUNE  
+    'swvl1': {'climits': [-15, 15], 'cint': 5, 'difference_climits': [-10, 10], 'color_true': '#00008B', 'color_pred': '#069AF3'}, # Max color count, if used, is around 25
+    'swvl2': {'climits': [-40, 40], 'cint': 15, 'difference_climits': [-45, 45], 'color_true': '#00008B', 'color_pred': '#069AF3'},
+    'swvl3': {'climits': [-40, 40], 'cint': 5, 'difference_climits': [-45, 45], 'color_true': '#00008B', 'color_pred': '#069AF3'},
+    'swvl4': {'climits': [-40, 40], 'cint': 5, 'difference_climits': [-45, 45], 'color_true': '#00008B', 'color_pred': '#069AF3'},
+    'fdii1': {'climits': [-20, 20], 'cint': 10, 'difference_climits': [-20, 20]},
+    'fdii2': {'climits': [-20, 20], 'cint': 10, 'difference_climits': [-20, 20]},
+    'fdii3': {'climits': [-30, 30], 'cint': 10, 'difference_climits': [-30, 30]},
+    'fdii4': {'climits': [-30, 30], 'cint': 10, 'difference_climits': [-30, 30]},
+    'sesr': {'climits': [-3.0, 3.0], 'cint': 1, 'difference_climits': [-3.0, 3.0]} 
 }
 
 
 # Function to generate a plot of performance metrics with forecast hour
-def plot_metric(metric, y, metric_name, var_name, climatology = None, persistence = None,
-                month = 6, year = 2018, add_variation = False,
-                path = './Figures/', savename = 'timeseries.png'):
+def plot_metric(
+        metric, 
+        lead_time, 
+        metric_name, 
+        var_name, 
+        climatology = None, 
+        persistence = None, 
+        month = 6, 
+        year = 2018, 
+        add_variation = False, 
+        anom = False,
+        path = './Figures/', 
+        savename = 'timeseries.png'
+        ) -> None:
     '''
-    Create spegatti plot of metrics with bolded line for average performance
+    Create plot of a metric against forecast lead time. Plot style varies with parameters, 
+    it can include climatology and persistence skill plots, a speggatti plot of multiple 
+    forecasts skill scores, or shading of one standard deviation
 
-    TODO:
-        Make docs for function
-        Bugfixes
+    Input:
+    :param metric: The metric to plot (np.ndarray). If shape is num_forecast_steps, plots metric. 
+                   If shape is n_forecasts x num_forecast_steps, plots average of metric (bold) and 
+                   speggatti plot for each forecast if add_variation = False, else plots average of
+                   metric and adds shading for 1 standard deviation of metric.
+    :param lead_time: Lead time of each forecast step (x axis of plot; np.ndarray of shape num_forecast_steps) 
+    :param metric_name: Name of the metric being plotted
+    :param var_name: Name variable being plotted. Must be a key in full_names and units
+    :param climatology: Metric score for climatology forecasts (np.ndarray of shape num_forecast_steps); if None, climatology is not plotted
+    :param persistence: Metric score for persistence forecasts (np.ndarray of shape num_forecast_steps); if None, persistence is not plotted
+    :param month: Int; month the forecast was initialized on (used for title information)
+    :param year: Int; year the forecast was initialized on (used for title information)
+    :param add_variation: Boolean; Add shading indicating variation in metric skill (ndim of metric must be 2)
+    :param anom: Boolean; Indicates whether the metric is for climate anomalies
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
     
+    # Obtain the full variable name
     if var_name in full_names.keys():
         variable = full_names[var_name]
     else:
         variable = 'Overall'
 
-    # Make the average plot
+    if anom:
+        variable = variable + ' Anomalies'
+
+    # Determine the average of metric if necessary
     if len(metric.shape) > 1:
         metric_average = np.nanmean(metric, axis = 0)
     else:
         metric_average = metric
 
+    # Determine the standard deviation of metric if necessary
     if add_variation:
         metric_std = np.nanstd(metric, axis = 0)
 
-    # Make the plot
+    # Initialize the figure
     fig, ax = plt.subplots(figsize = [12, 8])
 
     # Set the title
@@ -215,22 +262,25 @@ def plot_metric(metric, y, metric_name, var_name, climatology = None, persistenc
     else:
         ax.set_title('%s Forecast Skill vs Forecast Length\nfor Forecasts starting in %d, %d'%(variable, month, year), fontsize = 18)
     
-    # Make the plot
+    # Make a speggatti plot if specified
     if (len(metric.shape) > 1) & (add_variation == False):
         I, J = metric.shape
 
+        # One line for each forecast
         for i in range(I):
-            ax.plot(y, metric[i,:], color = 'grey', linewidth = 0.5)
+            ax.plot(lead_time, metric[i,:], color = 'grey', linewidth = 0.5)
 
-    # Plot Average line
-    ax.plot(y, metric_average, color = 'k', linewidth = 2.5, label = 'CrossFormer')
+    # Plot average/metric values
+    ax.plot(lead_time, metric_average, color = 'k', linewidth = 2.5, label = 'CrossFormer')
+
+    # Add the shading for standard deviation if specified
     if add_variation:
-        ax.fill_between(y, metric_average, metric_average + metric_std, color = 'grey', alpha = 0.5)
-        ax.fill_between(y, metric_average, metric_average - metric_std, color = 'grey', alpha = 0.5)
+        ax.fill_between(lead_time, metric_average, metric_average + metric_std, color = 'grey', alpha = 0.5)
+        ax.fill_between(lead_time, metric_average, metric_average - metric_std, color = 'grey', alpha = 0.5)
 
-    # Plot climatology and persistence (note these include forecasts at day = 0, so start from 1)
+    # Plot climatology if designated
     if climatology is not None:
-        ax.plot(y, np.nanmean(climatology, axis = 0), color = 'b', linewidth = 2.5, label = 'Climatology')
+        ax.plot(lead_time, np.nanmean(climatology, axis = 0), color = 'b', linewidth = 2.5, label = 'Climatology')
         # if add_variation:
             # ax.fill_between(y, np.nanmean(climatology, axis = 0), 
             #                 np.nanmean(climatology, axis = 0) + np.nanstd(climatology, axis = 0), 
@@ -239,8 +289,9 @@ def plot_metric(metric, y, metric_name, var_name, climatology = None, persistenc
             #                 np.nanmean(climatology, axis = 0) - np.nanstd(climatology, axis = 0), 
             #                 color = 'g', alpha = 0.5)
 
+    # Plot persistence if designated
     if persistence is not None:
-        ax.plot(y, np.nanmean(persistence, axis = 0), color = 'r', linewidth = 2.5, label = 'Persistence')
+        ax.plot(lead_time, np.nanmean(persistence, axis = 0), color = 'r', linewidth = 2.5, label = 'Persistence')
         # if add_variation:
         #     ax.fill_between(y, np.nanmean(persistence, axis = 0), 
         #                     np.nanmean(persistence, axis = 0) + np.nanstd(persistence, axis = 0), 
@@ -249,18 +300,19 @@ def plot_metric(metric, y, metric_name, var_name, climatology = None, persistenc
         #                     np.nanmean(persistence, axis = 0) - np.nanstd(persistence, axis = 0), 
         #                     color = 'b', alpha = 0.5)
 
+    # Add a legend if climatology and/or persistence was plotted
     if (climatology is not None) | (persistence is not None):
         ax.legend(fontsize = 18)
         
     # Add labels
-    if metric_name.upper() == 'ACC':
+    if (metric_name.upper() == 'ACC') | (metric_name.upper() == 'RPC'):
         ax.set_ylabel(metric_name.upper(), fontsize = 18)
     else:
         ax.set_ylabel('%s [%s]'%(metric_name.upper(), units[var_name]), fontsize = 18)
     ax.set_xlabel('Lead Time [Days]', fontsize = 18)
     # ax.set_xlabel('Forecast Day', fontsize = 18)
 
-    # Tick information
+    # Set the tick size
     for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
         i.set_size(18)
 
@@ -269,48 +321,57 @@ def plot_metric(metric, y, metric_name, var_name, climatology = None, persistenc
     plt.show(block = False)
 
 
-# Function to generate a plot of performance metrics with forecast hour
-def plot_violin(true, pred, var_name, path = './Figures/', savename = 'violin.png'):
+def plot_violin(
+        true, 
+        pred, 
+        var_name, 
+        path: str = './Figures/', 
+        savename: str = 'violin.png'
+        ) -> None:
     '''
-    Create violin plot of metrics at different lead times with true labels
+    Create a violin plot at different lead times with true and predicted labels on different sides of each violin
 
-    TODO:
-        Consider doing distributions in space
+    Inputs:
+    :param true: True labels on the left hand side of each violin (np.ndarray with shape time)
+    :param pred: Predicted labels on the right hand side of each violin (np.array with shape time x num_forecast_steps)
+    :param var_name: Name variable being plotted. Must be a key in full_names, units, and anomaly_plotting_information
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
-    # true labels shape is time, and subsetted to a specific region
-    # pred labels shape is forecast_hour, time
-    # Both are already averaged down
 
+    # Collect the full variable name
     if var_name in full_names.keys():
         variable = full_names[var_name]
     else:
         variable = 'Overall'
 
+    # Set up lists to plot multiple violins, one for each forecast step plotted
     true_dataset = [true, true, true, true]
     pred_dataset = [pred[:,0], pred[:,29], pred[:,59], pred[:,89]]
 
-    # Make the plot
+    # Initialize the figure
     fig, ax = plt.subplots(figsize = [12, 8])
 
     # Set the title
     ax.set_title('%s Anomalies [%s]'%(variable, units[var_name]), fontsize = 18)
 
-    # Make the plot
-    true_pcs = ax.violinplot(true_dataset, showmeans = True, showextrema = True,
-                             side = 'low')#, label = 'True Anomalies')
-    pred_pcs = ax.violinplot(pred_dataset, showmeans = True, showextrema = True, 
-                             side = 'high')#, label = 'Predicted Anomalies')
+    # Make the violin plot
+    true_pcs = ax.violinplot(true_dataset, showmeans = True, showextrema = True, side = 'low')#, label = 'True Anomalies')
+    pred_pcs = ax.violinplot(pred_dataset, showmeans = True, showextrema = True, side = 'high')#, label = 'Predicted Anomalies')
 
+    # Set the color and alpha for the true labels in the violin plots
     for pc in true_pcs['bodies']:
         pc.set_facecolor(anomaly_plotting_information[var_name]['color_true'])
         pc.set_edgecolor(anomaly_plotting_information[var_name]['color_true'])
         pc.set_alpha(0.6)
         
+    # Set the color and alpha for the predicted labels in the violin plots
     for pc in pred_pcs['bodies']:
         pc.set_facecolor(anomaly_plotting_information[var_name]['color_pred'])
         pc.set_edgecolor(anomaly_plotting_information[var_name]['color_pred'])
         pc.set_alpha(0.6)
 
+    # Set the line style and size for the means in violins
     true_pcs['cmeans'].set_color(anomaly_plotting_information[var_name]['color_true'])
     true_pcs['cmeans'].set_linestyle('--')
     true_pcs['cmeans'].set_linewidth(3)
@@ -319,6 +380,7 @@ def plot_violin(true, pred, var_name, path = './Figures/', savename = 'violin.pn
     pred_pcs['cmeans'].set_linestyle('--')
     pred_pcs['cmeans'].set_linewidth(3)
 
+    # Set the line style and size for the extrema (max and min) in the violins, and in the central stem of the violins
     true_pcs['cmaxes'].set_color(anomaly_plotting_information[var_name]['color_true'])
     true_pcs['cmins'].set_color(anomaly_plotting_information[var_name]['color_true'])
     true_pcs['cbars'].set_color(anomaly_plotting_information[var_name]['color_true'])
@@ -333,24 +395,29 @@ def plot_violin(true, pred, var_name, path = './Figures/', savename = 'violin.pn
 
     # Make the legend
     labels = []
+
+    # Make color patches (one for true and one for predicted labels) for the legend
     true_color_patch = mpatches.Patch(color = true_pcs['bodies'][0].get_facecolor().flatten())
     pred_color_patch = mpatches.Patch(color = pred_pcs['bodies'][0].get_facecolor().flatten())
+
+    # Add labels for the color patches
     labels.append((true_color_patch, 'True Labels'))
     labels.append((pred_color_patch, 'CrossFormer'))
+
+    # Make the legend for the color patches
     ax.legend(*zip(*labels), loc = 'upper left', fontsize = 18)
 
     # Add labels
     ax.set_ylabel('%s Anomalies [%s]'%(variable, units[var_name]), fontsize = 18)
-
     ax.set_xlabel('Lead Time [Days]', fontsize = 18)
 
-    # Ticks
+    # Set the ticks for each violin
     fh = [1, 30, 60, 90]
     ax.set_xticks(np.arange(1, len(fh)+1))
 
     ax.set_xticklabels(fh)
 
-    # Tick information
+    # Set the tick size
     for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
         i.set_size(18)
 
@@ -360,25 +427,32 @@ def plot_violin(true, pred, var_name, path = './Figures/', savename = 'violin.pn
 
 
 # Function to generate maps of true labels and predictions
-def make_comparison_map(y, y_pred, climatology, lat, lon, time,
-                        var_name = 'tmp', globe = True, forecast_hour = None,
-                        path = './Figures/', savename = 'timeseries.png'):
+def make_comparison_map(
+        y, 
+        y_pred, 
+        climatology, 
+        lat, 
+        lon, 
+        time, 
+        var_name: str = 'tmp', 
+        forecast_hour: int = 24, 
+        path: str = './Figures/', 
+        savename: str = 'timeseries.png'
+        ) -> None:
     '''
-    Create and save a generic map of y and y_pred
-
-    TODO:
-        Add a new column for difference between pred - true
-        Update docs
-        Bugfixes
+    Create a set of maps for y, y_pred, the climatological average, and the difference between y and y_pred for the globe
     
     Inputs:
-    #:param var: 2D array of the variable to be mapped # Add y and y_pred and time and forecast_hour
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
+    :param y: True labels that will be plotted (np.ndarray of shape lat x lon)
+    :param y_pred: Predicted labels that will be plotted (np.ndarray of shape lat x lon)
+    :param climatology: The climatological average for each grid point (np.ndarray of shape lat x lon)
+    :param lat: Latitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param time: Valid timestamp for maps being made
+    :param var_name: Name variable being plotted. Must be a key in full_names, variables and units
+    :param forecast_hour: Lead time (in hours) of the predictions (y_pred)
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
     
     # Set colorbar information
@@ -391,75 +465,62 @@ def make_comparison_map(y, y_pred, climatology, lat, lon, time,
     cmap  = plt.get_cmap(name = cname, lut = nlevs)
     
     # Lonitude and latitude tick information
-    if np.invert(globe):
-        lat_int = 10
-        lon_int = 20
-    else:
-        lat_int = 30
-        lon_int = 60
+    lat_int = 30
+    lon_int = 60
     
     LatLabel = np.arange(-90, 90, lat_int)
     LonLabel = np.arange(-180, 180, lon_int)
-    
-    LonFormatter = cticker.LongitudeFormatter()
-    LatFormatter = cticker.LatitudeFormatter()
     
     # Projection information
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.EckertIII()
     
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    
+    # Set the title information and labels for each plot
     title_information = full_names[var_name]
     if forecast_hour is None:
         # labels = ['True %s'%title_information, 'Climatology Prediction for %s'%title_information, '%s Prediction'%title_information]
-        labels = ['True %s'%title_information, 'Climatology', '%s'%title_information]
+        labels = ['True %s\nValid: %s'%(title_information, time.isoformat()), 'Climatology', '%s'%title_information]
     else:
         # labels = ['True %s'%title_information, 'Climatology Prediction for %s'%title_information, '%d Day %s Prediction'%(forecast_hour/24, title_information)]
-        labels = ['True %s'%title_information, 'Climatology', '%d Day %s'%(forecast_hour/24, title_information)]
+        labels = ['True %s\nValid: %s'%(title_information, time.isoformat()), 'Climatology', '%d Day %s Prediction'%(forecast_hour/24, title_information)]
 
-    # Create the figure
-    fig, axes = plt.subplots(figsize = [12, 27], nrows = 3, ncols = 2, 
+    # Initialize the figure
+    fig, axes = plt.subplots(figsize = [12, 27], nrows = 4, ncols = 1, 
                              subplot_kw = {'projection': fig_proj})
-    plt.subplots_adjust(hspace = -0.75, wspace = 0.4)
+    plt.subplots_adjust(hspace = 0.25)
     #plt.subplots_adjust(hspace = -0.4)
+
+    # Loop over y, climatology and y_pred to make a map for each
     for n, data in enumerate([y, climatology, y_pred]):
         # Set the title
-        axes[n,0].set_title('%s\nValid: %s'%(labels[n], time.isoformat()), size = 18)
+        axes[n].set_title('%s'%(labels[n]), size = 18)
         
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-        axes[n,0].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+        # Add ocean features
+        axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
         
-        # Ocean covers and "masks" data outside the U.S.
-        axes[n,0].coastlines(edgecolor = 'black', zorder = 3)
-        axes[n,0].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+        # Add coastlines and country borders
+        axes[n].coastlines(edgecolor = 'black', zorder = 3)
+        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
         # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[n,0].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 16}
-            gl.ylabel_style = {'size': 16}
-            gl.rotate_labels = False
-        else:
-            axes[n,0].set_xticks(LonLabel, crs = data_proj)
-            axes[n,0].set_yticks(LatLabel, crs = data_proj)
 
-            axes[n,0].set_yticklabels(LatLabel, fontsize = 16)
-            axes[n,0].set_xticklabels(LonLabel, fontsize = 16)
+        # Gridlines for the EckertIII projection and tick information
+        gl = axes[n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
+                               draw_labels = True,
+                               x_inline = False, y_inline = False,
+                               lw = 0.8, linestyle = '--', color = 'grey')
 
-            axes[n,0].xaxis.set_major_formatter(LonFormatter)
-            axes[n,0].yaxis.set_major_formatter(LatFormatter)
+        # Adjust the tick size
+        gl.xlabel_style = {'size': 16}
+        gl.ylabel_style = {'size': 16}
+        gl.rotate_labels = False
 
         # Plot the data
-        cs = axes[n,0].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
-                                cmap = cmap, transform = data_proj, zorder = 1)
+        cs = axes[n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
+                                  cmap = cmap, transform = data_proj, zorder = 1)
 
 
-    # Set the colorbar size and location
+    # Set the colorbar extent based on variable
     if (var_name == 'ndvi') | (var_name == 'fpar') | (var_name == 'cvh') | (var_name == 'cvl'):
         extend = None
     elif ('tp' in var_name) | ('swvl' in var_name) | ('fdii' in var_name) | ('q_tot' in var_name) | (var_name == 'ws') | (var_name == 'fg10') | (var_name == 'ssr'):
@@ -467,19 +528,22 @@ def make_comparison_map(y, y_pred, climatology, lat, lon, time,
     else:
         extend = 'both'
 
-    if np.invert(globe):
-        cbax = fig.add_axes([0.965, 0.30, 0.020, 0.40])
-    else:
-        cbax = fig.add_axes([0.965, 0.34, 0.020, 0.32])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend  = extend, orientation = 'vertical')
-    cbar.ax.set_ylabel('%s (%s)'%(variables[var_name], units[var_name]), fontsize = 18)
+    # Set the colorbar size and location
+    cbax = fig.add_axes([0.965, 0.30, 0.020, 0.59])
 
-    # Set the colorbar ticks
+    # Make the colorbar
+    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend  = extend, orientation = 'vertical')
+
+    # Set the colorbar label
+    cbar.ax.set_ylabel('%s (%s)'%(variables[var_name], units[var_name]), fontsize = 26)
+
+    # Set the colorbar tick size
     for i in cbar.ax.yaxis.get_ticklabels():
-        i.set_size(16)
+        i.set_size(26)
         
         
     # Make the true - pred plot
+    # Color information for the difference plot
     cmin_new = anomaly_plotting_information[var_name]['difference_climits'][0]; cmax_new = anomaly_plotting_information[var_name]['difference_climits'][1]
     cint = (cmax_new - cmin_new)/20
 
@@ -487,42 +551,47 @@ def make_comparison_map(y, y_pred, climatology, lat, lon, time,
     clevs = np.arange(cmin_new, cmax_new + cint, cint)
     nlevs = len(clevs)
     cmap_new = plt.get_cmap(name = 'coolwarm_r', lut = nlevs)
-    # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-    axes[0,1].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
 
-    # Ocean covers and "masks" data outside the U.S.
-    axes[0,1].coastlines(edgecolor = 'black', zorder = 3)
-    axes[0,1].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+    # Set the difference title
+    axes[3].set_title('True - Predicted Labels', size = 18)
+    
+    # Add ocean features
+    axes[3].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+
+    # Add coastlines and country borders
+    axes[3].coastlines(edgecolor = 'black', zorder = 3)
+    axes[3].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
     # Adjust the ticks
-    if fig_proj == ccrs.EckertIII():
-        gl = axes[0,1].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                draw_labels = True,
-                                x_inline = False, y_inline = False,
-                                lw = 0.8, linestyle = '--', color = 'grey')
-        gl.xlabel_style = {'size': 14}
-        gl.ylabel_style = {'size': 14}
-        gl.rotate_labels = False
-    else:
-        axes[0,1].set_xticks(LonLabel, crs = data_proj)
-        axes[0,1].set_yticks(LatLabel, crs = data_proj)
 
-        axes[1,1].set_yticklabels(LatLabel, fontsize = 14)
-        axes[0,1].set_xticklabels(LonLabel, fontsize = 14)
-
-        axes[0,1].xaxis.set_major_formatter(LonFormatter)
-        axes[0,1].yaxis.set_major_formatter(LatFormatter)
+    # Gridlines for the EckertIII projection and tick information
+    gl = axes[3].gridlines(xlocs = LonLabel, ylocs = LatLabel,
+                           draw_labels = True,
+                           x_inline = False, y_inline = False,
+                           lw = 0.8, linestyle = '--', color = 'grey')
+    
+    # Adjust the tick size
+    gl.xlabel_style = {'size': 16}
+    gl.ylabel_style = {'size': 16}
+    gl.rotate_labels = False
 
     # Plot the data
-    cs = axes[0,1].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
-                              cmap = cmap_new, transform = data_proj, zorder = 1)
+    cs = axes[3].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
+                            cmap = cmap_new, transform = data_proj, zorder = 1)
 
+    # Set the difference plot colorbar information
+    cbax = fig.add_axes([0.965, 0.11, 0.020, 0.17])#[0.925, 0.235, 0.020, 0.21])
 
-    cbax = fig.add_axes([1.095, 0.34, 0.020, 0.32])#[0.925, 0.235, 0.020, 0.21])
+    # Make the difference plot colorbar
     cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'vertical')
+
+    # Set the difference plot colorbar label
     cbar.ax.set_ylabel('Difference (%s)'%(units[var_name]), fontsize = 16)
 
-    # Set the colorbar ticks
+    # Set the difference plot colorbar ticks
+    cbar.ax.set_yticks(np.arange(cmin_new, cmax_new+0.00001, anomaly_plotting_information[var_name]['cint']))
+
+    # Set the colorbar tick size
     for i in cbar.ax.yaxis.get_ticklabels():
         i.set_size(16)
 
@@ -531,29 +600,34 @@ def make_comparison_map(y, y_pred, climatology, lat, lon, time,
     plt.show(block = False)
     plt.close()
 
-def make_anomaly_map(y, y_pred, lat, lon, time,
-                        var_name = 'tmp', globe = True, forecast_hour = None,
-                        path = './Figures/', savename = 'timeseries.png'):
+def make_anomaly_map(
+        y, 
+        y_pred, 
+        lat, 
+        lon, 
+        time, 
+        var_name: str = 'tmp', 
+        forecast_hour: int = 24, 
+        path: str = './Figures/', 
+        savename: str = 'timeseries.png'
+        ) -> None:
     '''
-    Create and save a generic map of y and y_pred
-
-    TODO:
-        Add a new column for difference between pred - true
-        Update docs
-        Bugfixes
+    Create a set of maps for y and y_pred anomalies, and the difference between y and y_pred anomalies for the globe
     
     Inputs:
-    #:param var: 2D array of the variable to be mapped # Add y and y_pred and time and forecast_hour
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
+    :param y: True labels that will be plotted (np.ndarray of shape lat x lon)
+    :param y_pred: Predicted labels that will be plotted (np.ndarray of shape lat x lon)
+    :param lat: Latitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param time: Valid timestamp for maps being made
+    :param var_name: Name variable being plotted. Must be a key in full_names, variables and units
+    :param forecast_hour: Lead time (in hours) of the predictions (y_pred)
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
     
     # Set colorbar information
-    cname = color_information[var_name]['cname']
+    cname = 'BrBG' #color_information[var_name]['cname']
     cmin = anomaly_plotting_information[var_name]['climits'][0]; cmax = anomaly_plotting_information[var_name]['climits'][1]; cint = (cmax - cmin)/20
 
     #cmin = 0; cmax = np.round(np.nanmax(np.stack([y, y_pred]))*1.10, 1); cint = (cmax - cmin)/20
@@ -562,100 +636,73 @@ def make_anomaly_map(y, y_pred, lat, lon, time,
     cmap  = plt.get_cmap(name = cname, lut = nlevs)
     
     # Lonitude and latitude tick information
-    if np.invert(globe):
-        lat_int = 10
-        lon_int = 20
-    else:
-        lat_int = 30
-        lon_int = 60
+    lat_int = 30
+    lon_int = 60
     
     LatLabel = np.arange(-90, 90, lat_int)
     LonLabel = np.arange(-180, 180, lon_int)
-    
-    LonFormatter = cticker.LongitudeFormatter()
-    LatFormatter = cticker.LatitudeFormatter()
     
     # Projection information
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.EckertIII()
     
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    if np.invert(globe):
-        ShapeName = 'admin_0_countries'
-        CountriesSHP = shpreader.natural_earth(resolution = '110m', category = 'cultural', name = ShapeName)
-
-        CountriesReader = shpreader.Reader(CountriesSHP)
-
-        USGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] == 'United States of America']
-        NonUSGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] != 'United States of America']
-        
+    # Set the title information and labels for each plot
     title_information = full_names[var_name]
     if forecast_hour is None:
-        labels = ['True %s'%title_information, '%s Prediction'%title_information]
+        labels = ['True %s\nValid: %s'%(title_information, time.isoformat()), '%s Prediction'%title_information]
     else:
-        labels = ['True %s'%title_information, '%d Day %s Prediction'%(forecast_hour/24, title_information)]
+        labels = ['True %s\nValid: %s'%(title_information, time.isoformat()), '%d Day %s Prediction'%(forecast_hour/24, title_information)]
 
-    # Create the figure
-    fig, axes = plt.subplots(figsize = [12, 27], nrows = 2, ncols = 2, 
+    # Initialize the figure
+    fig, axes = plt.subplots(figsize = [12, 27], nrows = 3, ncols = 1, 
                              subplot_kw = {'projection': fig_proj})
-    plt.subplots_adjust(hspace = -0.80, wspace = 0.4)
+    plt.subplots_adjust(hspace = -0.35)
     # plt.subplots_adjust(hspace = -0.4)
+
+    # Loop over y and y_pred to make a map for each
     for n, data in enumerate([y, y_pred]):
         # Set the title
-        axes[n,0].set_title('%s\nValid: %s'%(labels[n], time.isoformat()), size = 18)
+        axes[n].set_title('%s'%(labels[n]), size = 18)
         
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-        axes[n,0].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
-        if np.invert(globe):
-            # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-            axes[n,0].add_feature(cfeature.STATES)
-            axes[n,0].add_geometries(USGeom, crs = fig_proj, facecolor = 'none', edgecolor = 'black', zorder = 3)
-            axes[n,0].add_geometries(NonUSGeom, crs = fig_proj, facecolor = 'white', edgecolor = 'white', zorder = 2)
-        else:
-            # Ocean covers and "masks" data outside the U.S.
-            axes[n,0].coastlines(edgecolor = 'black', zorder = 3)
-            axes[n,0].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+        # Add ocean features
+        axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+        
+        # Add coastlines and country borders
+        axes[n].coastlines(edgecolor = 'black', zorder = 3)
+        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
         # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[n,0].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 16}
-            gl.ylabel_style = {'size': 16}
-            gl.rotate_labels = False
-        else:
-            axes[n,0].set_xticks(LonLabel, crs = data_proj)
-            axes[n,0].set_yticks(LatLabel, crs = data_proj)
 
-            axes[n,0].set_yticklabels(LatLabel, fontsize = 16)
-            axes[n,0].set_xticklabels(LonLabel, fontsize = 16)
-
-            axes[n,0].xaxis.set_major_formatter(LonFormatter)
-            axes[n,0].yaxis.set_major_formatter(LatFormatter)
+        # Gridlines for the EckertIII projection and tick information
+        gl = axes[n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
+                               draw_labels = True,
+                               x_inline = False, y_inline = False,
+                               lw = 0.8, linestyle = '--', color = 'grey')
+        
+        # Adjust the tick size
+        gl.xlabel_style = {'size': 16}
+        gl.ylabel_style = {'size': 16}
+        gl.rotate_labels = False
 
         # Plot the data
-        cs = axes[n,0].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
+        cs = axes[n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
                                 cmap = cmap, transform = data_proj, zorder = 1)
 
-
-
     # Set the colorbar size and location
-    if np.invert(globe):
-        cbax = fig.add_axes([0.965, 0.30, 0.020, 0.40])
-    else:
-        cbax = fig.add_axes([0.965, 0.40, 0.020, 0.20])
+    cbax = fig.add_axes([0.965, 0.40, 0.020, 0.40])
+
+    # Make the colorbar
     cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = 'both', orientation = 'vertical')
+
+    # Set the colorbar label
     cbar.ax.set_ylabel('%s Anomaly (%s)'%(variables[var_name], units[var_name]), fontsize = 18)
 
-    # Set the colorbar ticks
+    # Set the colorbar tick size
     for i in cbar.ax.yaxis.get_ticklabels():
-        i.set_size(16)
-        
+        i.set_size(16)    
 
     # Make the true - pred plot
+    # Color information for the difference plot
     cmin_new = anomaly_plotting_information[var_name]['difference_climits'][0]; cmax_new = anomaly_plotting_information[var_name]['difference_climits'][1]
     cint = (cmax_new - cmin_new)/20
 
@@ -663,42 +710,48 @@ def make_anomaly_map(y, y_pred, lat, lon, time,
     clevs = np.arange(cmin_new, cmax_new + cint, cint)
     nlevs = len(clevs)
     cmap_new = plt.get_cmap(name = 'coolwarm_r', lut = nlevs)
-    # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-    axes[0,1].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
 
-    # Ocean covers and "masks" data outside the U.S.
-    axes[0,1].coastlines(edgecolor = 'black', zorder = 3)
-    axes[0,1].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+    # Set the difference title
+    axes[2].set_title('True - Predicted Anomalies', size = 18)
+    
+    # Add ocean features
+    axes[2].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+
+    # Add coastlines and country borders
+    axes[2].coastlines(edgecolor = 'black', zorder = 3)
+    axes[2].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
     # Adjust the ticks
-    if fig_proj == ccrs.EckertIII():
-        gl = axes[0,1].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                draw_labels = True,
-                                x_inline = False, y_inline = False,
-                                lw = 0.8, linestyle = '--', color = 'grey')
-        gl.xlabel_style = {'size': 14}
-        gl.ylabel_style = {'size': 14}
-        gl.rotate_labels = False
-    else:
-        axes[0,1].set_xticks(LonLabel, crs = data_proj)
-        axes[0,1].set_yticks(LatLabel, crs = data_proj)
 
-        axes[1,1].set_yticklabels(LatLabel, fontsize = 14)
-        axes[0,1].set_xticklabels(LonLabel, fontsize = 14)
-
-        axes[0,1].xaxis.set_major_formatter(LonFormatter)
-        axes[0,1].yaxis.set_major_formatter(LatFormatter)
+    # Gridlines for the EckertIII projection and tick information
+    gl = axes[2].gridlines(xlocs = LonLabel, ylocs = LatLabel,
+                           draw_labels = True,
+                           x_inline = False, y_inline = False,
+                           lw = 0.8, linestyle = '--', color = 'grey')
+    
+    # Adjust the tick size
+    gl.xlabel_style = {'size': 16}
+    gl.ylabel_style = {'size': 16}
+    gl.rotate_labels = False
 
     # Plot the data
-    cs = axes[0,1].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
+    cs = axes[2].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
                               cmap = cmap_new, transform = data_proj, zorder = 1)
 
 
-    cbax = fig.add_axes([1.095, 0.40, 0.020, 0.20])#[0.925, 0.235, 0.020, 0.21])
+    # Set the difference plot colorbar information
+    cbax = fig.add_axes([0.965, 0.19, 0.020, 0.18])#[0.925, 0.235, 0.020, 0.21])
+
+    # Make the difference plot colorbar
     cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'vertical')
+
+    # Set the difference plot colorbar label
     cbar.ax.set_ylabel('Difference (%s)'%(units[var_name]), fontsize = 16)
 
-    # Set the colorbar ticks
+    # Set the difference plot colorbar ticks
+    cbar.ax.set_yticks(np.arange(cmin_new, cmax_new+0.00001, anomaly_plotting_information[var_name]['cint']))
+
+    # Set the colorbar tick size
     for i in cbar.ax.yaxis.get_ticklabels():
         i.set_size(16)
 
@@ -708,27 +761,34 @@ def make_anomaly_map(y, y_pred, lat, lon, time,
     plt.show(block = False)
     plt.close()
 
-def make_comparison_subset_map(y, y_pred, climatology, lat, lon, time, subset,
-                               var_name = 'tmp', forecast_hour = None,
-                               path = './Figures/', savename = 'timeseries.png'):
+def make_comparison_subset_map(
+        y, 
+        y_pred, 
+        climatology, 
+        lat, 
+        lon, 
+        time, 
+        subset, 
+        var_name: str = 'tmp', 
+        forecast_hour: int = 24, 
+        path: str = './Figures/', 
+        savename: str = 'timeseries.png'
+        ) -> None:
     '''
-    Create and save a generic map of y and y_pred for a subsetted region
-
-    TODO:
-        Adjust spacing between figures
-        Adjust title to include forecast hour/day
-        Adjust colorbar
-        Update docs
-        Bugfixes
+    Create a set of maps for y, y_pred, the climatological average, and the difference between y and y_pred for a subsetted region
     
     Inputs:
-    #:param var: 2D array of the variable to be mapped # Add y and y_pred and time and forecast_hour
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
+    :param y: True labels that will be plotted (np.ndarray of shape lat x lon)
+    :param y_pred: Predicted labels that will be plotted (np.ndarray of shape lat x lon)
+    :param climatology: The climatological average for each grid point (np.ndarray of shape lat x lon)
+    :param lat: Latitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param time: Valid timestamp for maps being made
+    :param subset: Name of the subset region being plotted over (must be a key in subset_information)
+    :param var_name: Name variable being plotted. Must be a key in full_names, variables and units
+    :param forecast_hour: Lead time (in hours) of the predictions (y_pred)
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
     
     # Subset information
@@ -753,63 +813,62 @@ def make_comparison_subset_map(y, y_pred, climatology, lat, lon, time, subset,
     
     LonFormatter = cticker.LongitudeFormatter()
     LatFormatter = cticker.LatitudeFormatter()
+    empty_formatter = cticker.LatitudeFormatter(cardinal_labels = {'north': '', 'south': ''})
     
     # Projection information
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.PlateCarree()
     
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    
+    # Set the title information and labels for each plot
     title_information = full_names[var_name]
     if forecast_hour is None:
         labels = ['True %s'%title_information, 'Climatolgoy prediction', '%s Prediction'%title_information]
     else:
         labels = ['True %s'%title_information, 'Climatology prediction', '%d Day %s Prediction'%(forecast_hour/24, title_information)]
 
-    # Create the figure
-    fig, axes = plt.subplots(figsize = [18, 18], nrows = 2, ncols = 3, 
+    # Initialize the figure
+    fig, axes = plt.subplots(figsize = [18, 18], nrows = 1, ncols = 4, 
                              subplot_kw = {'projection': fig_proj})
     plt.subplots_adjust(wspace = subset_information[subset]['wspace'], hspace = subset_information[subset]['hspace'])
+
+    # Loop over y, climatology and y_pred to make a map for each
     for n, data in enumerate([y, climatology, y_pred]):
         # Set the title
-        axes[0,n].set_title('%s\nValid for %s'%(labels[n], time.isoformat()), size = 16)
+        axes[n].set_title('%s\nValid for %s'%(labels[n], time.isoformat()), size = 14)
         
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-        axes[0,n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+        # Add ocean features
+        axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
 
-        # Ocean covers and "masks" data outside the U.S.
-        axes[0,n].coastlines(edgecolor = 'black', zorder = 3)
-        axes[0,n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+        # Add coastlines and country borders
+        axes[n].coastlines(edgecolor = 'black', zorder = 3)
+        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
         # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[0,n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 14}
-            gl.ylabel_style = {'size': 14}
-            gl.rotate_labels = False
+        axes[n].set_xticks(LonLabel, crs = data_proj)
+        axes[n].set_yticks(LatLabel, crs = data_proj)
+
+        axes[n].set_xticklabels(LonLabel, fontsize = 14)
+
+        axes[n].xaxis.set_major_formatter(LonFormatter)
+
+        # Add y tick labels and formatting for the first plot
+        if n == 0:
+            axes[n].set_yticklabels(LatLabel, fontsize = 14)
+            
+            axes[n].yaxis.set_major_formatter(LatFormatter)
         else:
-            axes[0,n].set_xticks(LonLabel, crs = data_proj)
-            axes[0,n].set_yticks(LatLabel, crs = data_proj)
-
-            axes[0,n].set_yticklabels(LatLabel, fontsize = 14)
-            axes[0,n].set_xticklabels(LonLabel, fontsize = 14)
-
-            axes[0,n].xaxis.set_major_formatter(LonFormatter)
-            axes[0,n].yaxis.set_major_formatter(LatFormatter)
+            axes[n].yaxis.set_major_formatter(empty_formatter)
+            axes[n].set_yticklabels('', fontsize = 0)
 
         # Plot the data
-        cs = axes[0,n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
+        cs = axes[n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
                                 cmap = cmap, transform = data_proj, zorder = 1)
 
         # Set the map extent
-        axes[0,n].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
+        axes[n].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
 
 
-    # Set the colorbar size and location
+    # Set the colorbar extent based on variable
     if (var_name == 'ndvi') | (var_name == 'fpar') | (var_name == 'cvh') | (var_name == 'cvl'):
         extend = None
     elif ('tp' in var_name) | ('swvl' in var_name) | ('fdii' in var_name) | ('q_tot' in var_name) | (var_name == 'ws') | (var_name == 'fg10') | (var_name == 'ssr'):
@@ -817,18 +876,23 @@ def make_comparison_subset_map(y, y_pred, climatology, lat, lon, time, subset,
     else:
         extend = 'both'
 
+    # Set the colorbar size and location
     # cbax = fig.add_axes([0.925, 0.365, 0.020, 0.26]) # Settings for a single row
     cbax = fig.add_axes(subset_information[subset]['colorbar_coord'][0])#[0.925, 0.535, 0.020, 0.21])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = extend, orientation = 'vertical')
-    cbar.ax.set_ylabel('%s (%s)'%(variables[var_name], units[var_name]), fontsize = 16)
 
-    # Set the colorbar ticks
-    for i in cbar.ax.yaxis.get_ticklabels():
-        i.set_size(16)
+    # Make the colorbar
+    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = extend, orientation = 'horizontal')
+
+    # Make the colorbar label
+    cbar.ax.set_xlabel('%s (%s)'%(variables[var_name], units[var_name]), fontsize = 14)
+
+    # Set the colorbar tick size
+    for i in cbar.ax.xaxis.get_ticklabels():
+        i.set_size(14)
         
 
-
     # Make the true - pred plot
+    # Color information for the difference plot
     cmin_new = anomaly_plotting_information[var_name]['difference_climits'][0]; cmax_new = anomaly_plotting_information[var_name]['difference_climits'][1]
     cint = (cmax_new - cmin_new)/20
 
@@ -836,46 +900,50 @@ def make_comparison_subset_map(y, y_pred, climatology, lat, lon, time, subset,
     clevs = np.arange(cmin_new, cmax_new + cint, cint)
     nlevs = len(clevs)
     cmap_new = plt.get_cmap(name = 'coolwarm_r', lut = nlevs)
-    # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-    axes[1,0].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
 
-    # Ocean covers and "masks" data outside the U.S.
-    axes[1,0].coastlines(edgecolor = 'black', zorder = 3)
-    axes[1,0].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+    # Set the difference title
+    axes[3].set_title('True - Predicted Labels', size = 14)
+
+    # Add ocean features
+    axes[3].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+
+    # Add coastlines and country borders
+    axes[3].coastlines(edgecolor = 'black', zorder = 3)
+    axes[3].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
     # Adjust the ticks
-    if fig_proj == ccrs.EckertIII():
-        gl = axes[1,0].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                draw_labels = True,
-                                x_inline = False, y_inline = False,
-                                lw = 0.8, linestyle = '--', color = 'grey')
-        gl.xlabel_style = {'size': 14}
-        gl.ylabel_style = {'size': 14}
-        gl.rotate_labels = False
-    else:
-        axes[1,0].set_xticks(LonLabel, crs = data_proj)
-        axes[1,0].set_yticks(LatLabel, crs = data_proj)
+    axes[3].set_xticks(LonLabel, crs = data_proj)
+    axes[3].set_yticks(LatLabel, crs = data_proj)
 
-        axes[1,0].set_yticklabels(LatLabel, fontsize = 14)
-        axes[1,0].set_xticklabels(LonLabel, fontsize = 14)
+    # axes[3].set_yticklabels(LatLabel, fontsize = 14)
+    axes[3].set_xticklabels(LonLabel, fontsize = 14)
 
-        axes[1,0].xaxis.set_major_formatter(LonFormatter)
-        axes[1,0].yaxis.set_major_formatter(LatFormatter)
+    axes[3].xaxis.set_major_formatter(LonFormatter)
+    axes[3].yaxis.set_major_formatter(empty_formatter)
+    axes[3].set_yticklabels('', fontsize = 0)
 
     # Plot the data
-    cs = axes[1,0].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
+    cs = axes[3].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
                               cmap = cmap_new, transform = data_proj, zorder = 1)
 
     # Set the map extent
-    axes[1,0].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
+    axes[3].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
 
+    # Set the difference plot colorbar information
     cbax = fig.add_axes(subset_information[subset]['colorbar_coord'][1])#[0.925, 0.235, 0.020, 0.21])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'vertical')
-    cbar.ax.set_ylabel('Difference (%s)'%(units[var_name]), fontsize = 16)
 
-    # Set the colorbar ticks
-    for i in cbar.ax.yaxis.get_ticklabels():
-        i.set_size(16)
+    # Make the difference plot colorbar
+    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'horizontal')
+
+    # Set the difference plot colorbar label
+    cbar.ax.set_xlabel('Difference (%s)'%(units[var_name]), fontsize = 14)
+
+    # Set the difference plot colorbar ticks
+    cbar.ax.set_xticks(np.arange(cmin_new, cmax_new+0.00001, anomaly_plotting_information[var_name]['cint']))
+
+    # Set the colorbar tick size
+    for i in cbar.ax.xaxis.get_ticklabels():
+        i.set_size(14)
     
         
     # Save the figure
@@ -883,27 +951,33 @@ def make_comparison_subset_map(y, y_pred, climatology, lat, lon, time, subset,
     plt.show(block = False)
     plt.close()
 
-def make_anomaly_subset_map(y, y_pred, lat, lon, time, subset,
-                            var_name = 'tmp', forecast_hour = None,
-                            path = './Figures/', savename = 'timeseries.png'):
-    '''
-    Create and save a generic map of y and y_pred for a subsetted region
 
-    TODO:
-        Adjust spacing between figures
-        Adjust title to include forecast hour/day
-        Adjust colorbar
-        Update docs
-        Bugfixes
+def make_anomaly_subset_map(
+        y, 
+        y_pred, 
+        lat, 
+        lon, 
+        time, 
+        subset, 
+        var_name: str = 'tmp', 
+        forecast_hour: int = 24, 
+        path: str = './Figures/', 
+        savename: str = 'timeseries.png'
+        ) -> None:
+    '''
+    Create a set of maps for y and y_pred anomalies, and the difference between y and y_pred anomalies for a subsetted region
     
     Inputs:
-    #:param var: 2D array of the variable to be mapped # Add y and y_pred and time and forecast_hour
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
+    :param y: True labels that will be plotted (np.ndarray of shape lat x lon)
+    :param y_pred: Predicted labels that will be plotted (np.ndarray of shape lat x lon)
+    :param lat: Latitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param time: Valid timestamp for maps being made
+    :param subset: Name of the subset region being plotted over (must be a key in subset_information)
+    :param var_name: Name variable being plotted. Must be a key in full_names, variables and units
+    :param forecast_hour: Lead time (in hours) of the predictions (y_pred)
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
 
     # Subset information
@@ -929,81 +1003,76 @@ def make_anomaly_subset_map(y, y_pred, lat, lon, time, subset,
     
     LonFormatter = cticker.LongitudeFormatter()
     LatFormatter = cticker.LatitudeFormatter()
+    empty_formatter = cticker.LatitudeFormatter(cardinal_labels = {'north': '', 'south': ''})
     
     # Projection information
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.PlateCarree()
     
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    if subset == 'united_states':
-        ShapeName = 'admin_0_countries'
-        CountriesSHP = shpreader.natural_earth(resolution = '110m', category = 'cultural', name = ShapeName)
-
-        CountriesReader = shpreader.Reader(CountriesSHP)
-
-        USGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] == 'United States of America']
-        NonUSGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] != 'United States of America']
-        
+    # Set the title information and labels for each plot
     title_information = full_names[var_name]
     if forecast_hour is None:
         labels = ['True %s'%title_information, '%s Prediction'%title_information]
     else:
         labels = ['True %s'%title_information, '%d Day %s Prediction'%(forecast_hour/24, title_information)]
 
-    # Create the figure
-    fig, axes = plt.subplots(figsize = [18, 18], nrows = 2, ncols = 2, 
+    # Initialize the figure
+    fig, axes = plt.subplots(figsize = [18, 18], nrows = 1, ncols = 3, 
                              subplot_kw = {'projection': fig_proj})
     plt.subplots_adjust(wspace = subset_information[subset]['wspace'], hspace = subset_information[subset]['hspace_anomaly'])
+
+    # Loop over y and y_pred to make a map for each
     for n, data in enumerate([y, y_pred]):
         # Set the title
-        axes[0,n].set_title('%s\nValid for %s'%(labels[n], time.isoformat()), size = 16)
+        axes[n].set_title('%s\nValid for %s'%(labels[n], time.isoformat()), size = 16)
         
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-        axes[0,n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+        # Add ocean features
+        axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
 
-        # Ocean covers and "masks" data outside the U.S.
-        axes[0,n].coastlines(edgecolor = 'black', zorder = 3)
-        axes[0,n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+        # Add coastlines and country borders
+        axes[n].coastlines(edgecolor = 'black', zorder = 3)
+        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
         # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[0,n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 14}
-            gl.ylabel_style = {'size': 14}
-            gl.rotate_labels = False
+        axes[n].set_xticks(LonLabel, crs = data_proj)
+        axes[n].set_yticks(LatLabel, crs = data_proj)
+
+        axes[n].set_xticklabels(LonLabel, fontsize = 14)
+
+        axes[n].xaxis.set_major_formatter(LonFormatter)
+
+        # Add y tick labels and formatting for the first plot
+        if n == 0:
+            axes[n].set_yticklabels(LatLabel, fontsize = 14)
+            
+            axes[n].yaxis.set_major_formatter(LatFormatter)
         else:
-            axes[0,n].set_xticks(LonLabel, crs = data_proj)
-            axes[0,n].set_yticks(LatLabel, crs = data_proj)
-
-            axes[0,n].set_yticklabels(LatLabel, fontsize = 14)
-            axes[0,n].set_xticklabels(LonLabel, fontsize = 14)
-
-            axes[0,n].xaxis.set_major_formatter(LonFormatter)
-            axes[0,n].yaxis.set_major_formatter(LatFormatter)
+            axes[n].yaxis.set_major_formatter(empty_formatter)
+            axes[n].set_yticklabels('', fontsize = 0)
 
         # Plot the data
-        cs = axes[0,n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
+        cs = axes[n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
                                 cmap = cmap, transform = data_proj, zorder = 1)
 
         # Set the map extent
-        axes[0,n].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
-
+        axes[n].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
 
     # Set the colorbar size and location
     # cbax = fig.add_axes([0.925, 0.365, 0.020, 0.26]) # Settings for a single row
     cbax = fig.add_axes(subset_information[subset]['colorbar_coord_anomaly'][0])#[0.925, 0.565, 0.020, 0.26])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = 'both', orientation = 'vertical')
-    cbar.ax.set_ylabel('%s Anomaly (%s)'%(variables[var_name], units[var_name]), fontsize = 16)
 
-    # Set the colorbar ticks
-    for i in cbar.ax.yaxis.get_ticklabels():
+    # Make the colorbar
+    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = 'both', orientation = 'horizontal')
+
+    # Set the colorbar label
+    cbar.ax.set_xlabel('%s Anomaly (%s)'%(variables[var_name], units[var_name]), fontsize = 16)
+
+    # Set the colorbar tick size
+    for i in cbar.ax.xaxis.get_ticklabels():
         i.set_size(16)
         
     # Make the true - pred plot
+    # Color information for the difference plot
     cmin_new = anomaly_plotting_information[var_name]['difference_climits'][0]; cmax_new = anomaly_plotting_information[var_name]['difference_climits'][1]
     cint = (cmax_new - cmin_new)/20
 
@@ -1011,45 +1080,49 @@ def make_anomaly_subset_map(y, y_pred, lat, lon, time, subset,
     clevs = np.arange(cmin_new, cmax_new + cint, cint)
     nlevs = len(clevs)
     cmap_new = plt.get_cmap(name = 'coolwarm_r', lut = nlevs)
-    # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-    axes[1,0].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
 
-    # Ocean covers and "masks" data outside the U.S.
-    axes[1,0].coastlines(edgecolor = 'black', zorder = 3)
-    axes[1,0].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+    # Set the difference title
+    axes[2].set_title('True - Predicted Anomalies', size = 16)
+
+    # Add ocean features
+    axes[2].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+
+    # Add coastlines and country borders
+    axes[2].coastlines(edgecolor = 'black', zorder = 3)
+    axes[2].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
     # Adjust the ticks
-    if fig_proj == ccrs.EckertIII():
-        gl = axes[1,0].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                draw_labels = True,
-                                x_inline = False, y_inline = False,
-                                lw = 0.8, linestyle = '--', color = 'grey')
-        gl.xlabel_style = {'size': 14}
-        gl.ylabel_style = {'size': 14}
-        gl.rotate_labels = False
-    else:
-        axes[1,0].set_xticks(LonLabel, crs = data_proj)
-        axes[1,0].set_yticks(LatLabel, crs = data_proj)
+    axes[2].set_xticks(LonLabel, crs = data_proj)
+    axes[2].set_yticks(LatLabel, crs = data_proj)
 
-        axes[1,0].set_yticklabels(LatLabel, fontsize = 14)
-        axes[1,0].set_xticklabels(LonLabel, fontsize = 14)
+    # axes[2].set_yticklabels(LatLabel, fontsize = 14)
+    axes[2].set_xticklabels(LonLabel, fontsize = 14)
 
-        axes[1,0].xaxis.set_major_formatter(LonFormatter)
-        axes[1,0].yaxis.set_major_formatter(LatFormatter)
+    axes[2].xaxis.set_major_formatter(LonFormatter)
+    axes[2].yaxis.set_major_formatter(empty_formatter)
+    axes[2].set_yticklabels('', fontsize = 0)
 
     # Plot the data
-    cs = axes[1,0].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
+    cs = axes[2].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
                               cmap = cmap_new, transform = data_proj, zorder = 1)
 
     # Set the map extent
-    axes[1,0].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
+    axes[2].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
 
+    # Set the difference plot colorbar information
     cbax = fig.add_axes(subset_information[subset]['colorbar_coord_anomaly'][1])#[0.925, 0.165, 0.020, 0.26])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'vertical')
-    cbar.ax.set_ylabel('Difference (%s)'%(units[var_name]), fontsize = 16)
+
+    # Make the difference plot colorbar
+    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'horizontal')
+
+    # Set the difference plot colorbar label
+    cbar.ax.set_xlabel('Difference (%s)'%(units[var_name]), fontsize = 16)
+
+    # Set the difference plot colorbar ticks
+    cbar.ax.set_xticks(np.arange(cmin_new, cmax_new+0.00001, anomaly_plotting_information[var_name]['cint']))
 
     # Set the colorbar ticks
-    for i in cbar.ax.yaxis.get_ticklabels():
+    for i in cbar.ax.xaxis.get_ticklabels():
         i.set_size(16)
 
     # Save the figure
@@ -1058,27 +1131,26 @@ def make_anomaly_subset_map(y, y_pred, lat, lon, time, subset,
     plt.close()
 
 
-def make_error_map(acc, rmse, lat, lon,
-                   var_name = 'tmp', globe = True, 
-                   path = './Figures/', savename = 'timeseries.png'):
+def make_error_map(
+        acc, 
+        rmse, 
+        lat, 
+        lon,
+        var_name: str = 'tmp',
+        path: str = './Figures/', 
+        savename: str = 'timeseries.png'
+        ) -> None:
     '''
-    Create and save a map of anomaly correlation coefficient (ACC) and root mean square error (RMSE)
+    Create a map of anomaly correlation coefficient (ACC) and root mean square error (RMSE) for the whole globe
 
-    TODO:
-        Adjust spacing between figures
-        Adjust title to include forecast hour/day
-        Adjust colorbar
-        Update docs
-        Bugfixes
-    
     Inputs:
-    :param var: 2D array of the variable to be mapped
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
+    :param acc: ACC to be plotted (np.ndarray with shape lat x lon)
+    :param rmse: RMSE to be plotted (np.ndarray with shape lat x lon)
+    :param lat: Latitudes labels for acc and rmse (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for acc and rmse (np.ndarray with shape lat x lon)
+    :param var_name: Name variable the ACC and RMSE is for
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
     
     # Set colorbar information
@@ -1086,160 +1158,139 @@ def make_error_map(acc, rmse, lat, lon,
     cmin_acc = 0.0; cmax_acc = 0.9; cint_acc = (cmax_acc - cmin_acc)/20
     cmin_rmse = color_information[var_name]['climits_metric'][0]; cmax_rmse = color_information[var_name]['climits_metric'][1]; cint_rmse = (cmax_rmse - cmin_rmse)/20
 
+    # Colorbar intervals and colormap for acc
     #cmin = 0; cmax = np.round(np.nanmax(np.stack([y, y_pred]))*1.10, 1); cint = (cmax - cmin)/20
     clevs_acc = np.arange(cmin_acc, cmax_acc + cint_acc, cint_acc)
     nlevs_acc = len(clevs_acc)
     cmap_acc  = plt.get_cmap(name = cname, lut = nlevs_acc)
 
+    # Colorbar intervals and colormap for rmse
     clevs_rmse = np.arange(cmin_rmse, cmax_rmse + cint_rmse, cint_rmse)
     nlevs_rmse = len(clevs_rmse)
     cmap_rmse  = plt.get_cmap(name = cname, lut = nlevs_rmse)
     
+    # Set color information in a list to loop over
     cmins = [cmin_acc, cmin_rmse]; cmaxs = [cmax_acc, cmax_rmse]; cmaps = [cmap_acc, cmap_rmse]
     extend = ['max', 'both']
 
     # Lonitude and latitude tick information
-    if np.invert(globe):
-        lat_int = 10
-        lon_int = 20
-    else:
-        lat_int = 30
-        lon_int = 60
+    lat_int = 30
+    lon_int = 60
     
     LatLabel = np.arange(-90, 90, lat_int)
     LonLabel = np.arange(-180, 180, lon_int)
-    
-    LonFormatter = cticker.LongitudeFormatter()
-    LatFormatter = cticker.LatitudeFormatter()
     
     # Projection information
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.EckertIII()
     
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    if np.invert(globe):
-        ShapeName = 'admin_0_countries'
-        CountriesSHP = shpreader.natural_earth(resolution = '110m', category = 'cultural', name = ShapeName)
-
-        CountriesReader = shpreader.Reader(CountriesSHP)
-
-        USGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] == 'United States of America']
-        NonUSGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] != 'United States of America']
-        
+    # Set the subtitle and colorbar labels, and the coordinates for each subplot
     title_information = full_names[var_name]
     labels = ['ACC for %s predictions'%title_information, 'RMSE for %s predictions'%title_information]
     color_labels = ['ACC', 'RMSE (%s)'%units[var_name]]
     vertical_coords = [0.55, 0.25]
 
-    # Create the figure
+    # Initialize the figure
     fig, axes = plt.subplots(figsize = [12, 18], nrows = 2, ncols = 1, 
                              subplot_kw = {'projection': fig_proj})
     plt.subplots_adjust(hspace = -0.4)
+
+    # Loop over ACC and RMSE, creating a plot for each
     for n, data in enumerate([acc, rmse]):
         # Set the title
         # axes[n].set_title(labels[n], size = 18)
         axes[n].set_title(title_information, size = 18)
         
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
+        # Add ocean features
         axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
-        if np.invert(globe):
-            # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-            axes[n].add_feature(cfeature.STATES)
-            axes[n].add_geometries(USGeom, crs = fig_proj, facecolor = 'none', edgecolor = 'black', zorder = 3)
-            axes[n].add_geometries(NonUSGeom, crs = fig_proj, facecolor = 'white', edgecolor = 'white', zorder = 2)
-        else:
-            # Ocean covers and "masks" data outside the U.S.
-            axes[n].coastlines(edgecolor = 'black', zorder = 3)
-            axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+
+        # Add coastlines and country borders
+        axes[n].coastlines(edgecolor = 'black', zorder = 3)
+        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
         # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 16}
-            gl.ylabel_style = {'size': 16}
-            gl.rotate_labels = False
-        else:
-            axes[n].set_xticks(LonLabel, crs = data_proj)
-            axes[n].set_yticks(LatLabel, crs = data_proj)
-
-            axes[n].set_yticklabels(LatLabel, fontsize = 16)
-            axes[n].set_xticklabels(LonLabel, fontsize = 16)
-
-            axes[n].xaxis.set_major_formatter(LonFormatter)
-            axes[n].yaxis.set_major_formatter(LatFormatter)
+        
+        # Gridlines for the EckertIII projection and tick information
+        gl = axes[n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
+                                draw_labels = True,
+                                x_inline = False, y_inline = False,
+                                lw = 0.8, linestyle = '--', color = 'grey')
+        
+        # Adjust the tick size
+        gl.xlabel_style = {'size': 16}
+        gl.ylabel_style = {'size': 16}
+        gl.rotate_labels = False
 
         # Plot the data
         cs = axes[n].pcolormesh(lon, lat, data, vmin = cmins[n], vmax = cmaxs[n],
                                 cmap = cmaps[n], transform = data_proj, zorder = 1)
 
-        # Set the map extent to the U.S.
-        if np.invert(globe):
-            axes[n].set_extent([-130, -65, 23.5, 48.5])
-        else:
-            axes[n].set_extent([-179, 179, -65, 80])
+        # Set the extent over the landmasses of the world
+        axes[n].set_extent([-179, 179, -65, 80])
 
 
         # Set the colorbar size and location
-        if np.invert(globe):
-            cbax = fig.add_axes([0.965, 0.30, 0.020, 0.40])
-        else:
-            cbax = fig.add_axes([0.965, vertical_coords[n], 0.020, 0.18])
+        cbax = fig.add_axes([0.965, vertical_coords[n], 0.020, 0.18])
+
+        # Add the colorbar
         cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmaps[n], extend = extend[n], orientation = 'vertical')
+
+        # Set the colorbar label
         cbar.ax.set_ylabel(color_labels[n], fontsize = 18)
 
-        # Set the colorbar ticks
+        # Set the colorbar tick size
         for i in cbar.ax.yaxis.get_ticklabels():
             i.set_size(16)
-        
         
     # Save the figure
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
 
-def make_error_subset_map(acc, rmse, lat, lon, subset,
-                          var_name = 'tmp', path = './Figures/', savename = 'timeseries.png'):
+def make_error_subset_map(
+        acc, 
+        rmse, 
+        lat, 
+        lon, 
+        subset,
+        var_name: str = 'tmp', 
+        path: str = './Figures/', 
+        savename: str = 'timeseries.png'
+        ) -> None:
     '''
-    Create and save a Create and save a map of anomaly correlation coefficient (ACC) and root mean square error (RMSE) for a subsetted region
+    Create a map of anomaly correlation coefficient (ACC) and root mean square error (RMSE) for a subsetted region
 
-    TODO:
-        Adjust spacing between figures
-        Adjust title to include forecast hour/day
-        Adjust colorbar
-        Update docs
-        Bugfixes
-    
     Inputs:
-    :param var: 2D array of the variable to be mapped # Add y and y_pred and time and forecast_hour
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
+    :param acc: ACC to be plotted (np.ndarray with shape lat x lon)
+    :param rmse: RMSE to be plotted (np.ndarray with shape lat x lon)
+    :param lat: Latitudes labels for acc and rmse (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for acc and rmse (np.ndarray with shape lat x lon)
+    :param subset: Name of the subset region being plotted over (must be a key in subset_information)
+    :param var_name: Name variable the ACC and RMSE is for
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
     
     # Subset information
     lower_lat = subset_information[subset]['map_extent'][0]; upper_lat = subset_information[subset]['map_extent'][1]
     lower_lon = subset_information[subset]['map_extent'][2]; upper_lon = subset_information[subset]['map_extent'][3]
 
-    # Set colorbar information
+    # Colorbar information
     cname = 'Reds'
     cmin_acc = 0.0; cmax_acc = 0.9; cint_acc = (cmax_acc - cmin_acc)/20
     cmin_rmse = color_information[var_name]['climits_metric'][0]; cmax_rmse = color_information[var_name]['climits_metric'][1]; cint_rmse = (cmax_rmse - cmin_rmse)/20
 
+    # Colorbar intervals and colormap for acc
     #cmin = 0; cmax = np.round(np.nanmax(np.stack([y, y_pred]))*1.10, 1); cint = (cmax - cmin)/20
     clevs_acc = np.arange(cmin_acc, cmax_acc + cint_acc, cint_acc)
     nlevs_acc = len(clevs_acc)
     cmap_acc  = plt.get_cmap(name = cname, lut = nlevs_acc)
 
+    # Colorbar intervals and colormap for rmse
     clevs_rmse = np.arange(cmin_rmse, cmax_rmse + cint_rmse, cint_rmse)
     nlevs_rmse = len(clevs_rmse)
     cmap_rmse  = plt.get_cmap(name = cname, lut = nlevs_rmse)
     
+    # Set color information in a list to loop over
     cmins = [cmin_acc, cmin_rmse]; cmaxs = [cmax_acc, cmax_rmse]; cmaps = [cmap_acc, cmap_rmse]
     extend = ['max', 'both']
     
@@ -1257,67 +1308,49 @@ def make_error_subset_map(acc, rmse, lat, lon, subset,
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.PlateCarree()
     
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    if subset == 'united_states':
-        ShapeName = 'admin_0_countries'
-        CountriesSHP = shpreader.natural_earth(resolution = '110m', category = 'cultural', name = ShapeName)
-
-        CountriesReader = shpreader.Reader(CountriesSHP)
-
-        USGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] == 'United States of America']
-        NonUSGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] != 'United States of America']
-        
+    # Collect the title information
     title_information = full_names[var_name]
+
+    # Set the subtitle and colorbar labels, and the coordinates for each subplot
     labels = ['ACC for %s predictions'%title_information, 'RMSE for %s predictions'%title_information]
     color_labels = ['ACC', 'RMSE (%s)'%units[var_name]]
     horizontal_coords = [0.132, 0.55]
 
-    # Create the figure
+    # Initialize the figure
     fig, axes = plt.subplots(figsize = [12, 18], nrows = 1, ncols = 2, 
                              subplot_kw = {'projection': fig_proj})
     plt.subplots_adjust(wspace = subset_information[subset]['wspace_metric'])
+
+    # Loop over ACC and RMSE, creating a plot for each
     for n, data in enumerate([acc, rmse]):
         # Set the title
         # axes[n].set_title(labels[n], size = 16)
         axes[n].set_title(title_information, size = 16)
         
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
+        # Add ocean features
         axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
-        if subset == 'united_states':
-            # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-            axes[n].add_feature(cfeature.STATES)
-            axes[n].add_geometries(USGeom, crs = fig_proj, facecolor = 'none', edgecolor = 'black', zorder = 3)
-            axes[n].add_geometries(NonUSGeom, crs = fig_proj, facecolor = 'white', edgecolor = 'white', zorder = 2)
-        else:
-            # Ocean covers and "masks" data outside the U.S.
-            axes[n].coastlines(edgecolor = 'black', zorder = 3)
-            axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
-        # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 14}
-            gl.ylabel_style = {'size': 14}
-            gl.rotate_labels = False
-        else:
-            axes[n].set_xticks(LonLabel, crs = data_proj)
-            axes[n].set_yticks(LatLabel, crs = data_proj)
+        # Add coastlines and country borders
+        axes[n].coastlines(edgecolor = 'black', zorder = 3)
+        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
 
-            axes[n].set_yticklabels(LatLabel, fontsize = 14)
-            axes[n].set_xticklabels(LonLabel, fontsize = 14)
+        # Set ticks
+        axes[n].set_xticks(LonLabel, crs = data_proj)
+        axes[n].set_yticks(LatLabel, crs = data_proj)
 
-            axes[n].xaxis.set_major_formatter(LonFormatter)
-            axes[n].yaxis.set_major_formatter(LatFormatter)
+        # Set the tick labels
+        axes[n].set_yticklabels(LatLabel, fontsize = 14)
+        axes[n].set_xticklabels(LonLabel, fontsize = 14)
+
+        # Format the ticks
+        axes[n].xaxis.set_major_formatter(LonFormatter)
+        axes[n].yaxis.set_major_formatter(LatFormatter)
 
         # Plot the data
         cs = axes[n].pcolormesh(lon, lat, data, vmin = cmins[n], vmax = cmaxs[n],
                                 cmap = cmaps[n], transform = data_proj, zorder = 1)
 
-        # Set the map extent
+        # Set the map extent to the subset region
         axes[n].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
 
 
@@ -1326,32 +1359,54 @@ def make_error_subset_map(acc, rmse, lat, lon, subset,
                              subset_information[subset]['colorbar_coord_metric'][0],
                              subset_information[subset]['colorbar_coord_metric'][1],
                              subset_information[subset]['colorbar_coord_metric'][2]])#0.330, 0.34, 0.015])
+        # Add the colorbar
         cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmaps[n], extend = extend[n], orientation = 'horizontal')
+
+        # Set the colorbar label
         cbar.ax.set_xlabel(color_labels[n], fontsize = 16)
 
-        # Set the colorbar ticks
+        # Set the colorbar tick size
         for i in cbar.ax.xaxis.get_ticklabels():
             i.set_size(16)
-        
         
     # Save the figure
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
 
 # Histogram scatter plot
-def make_histogram_scatter_plot(ytrue, ypred, variable, forecast_day, path = './Figures', savename = 'tmp.png'):
+def make_histogram_scatter_plot(
+        ytrue, 
+        ypred, 
+        variable, 
+        forecast_day, 
+        path: str = './Figures', 
+        savename: str = 'tmp.png'
+        ) -> None:
+    '''
+    Make a complex density scatter plot between ytrue and ypred with the corresponding histogram displayed on each axis
 
+    Inputs:
+    :param ytrue: True labels on the y-axis
+    :param ypred: Predicted labels on the x-axis
+    :param variable: Name of the variable being plotted. Must be a key in full_variable_name and color_information
+    :param forecast_day: Lead time (in days) of the predictions in ypred
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
+    '''
+
+    # Find all NaN values
     valid_indices = np.invert(np.isnan(ytrue.flatten()) | np.isnan(ypred.flatten()))
 
+    # Determine the full variable name
     full_variable_name = full_names[variable]
 
+    # Colorbar information for the density plot
     cmin = 0; cmax = 30; cint = (cmax - cmin)/100
     clevs = np.arange(cmin, cmax + cint, cint)
     nlevs = len(clevs)
     cmap  = plt.get_cmap(name = 'viridis', lut = nlevs)
 
-    # max_value = np.nanmax(ytrue)
-    # min_value = np.nanmin(ytrue)
+    # Collect histogram information for the given variable
     max_value = color_information[variable]['hist_values'][1]
     min_value = color_information[variable]['hist_values'][0]
     max_counts = color_information[variable]['max_counts']
@@ -1360,12 +1415,12 @@ def make_histogram_scatter_plot(ytrue, ypred, variable, forecast_day, path = './
     if ('swvl' in variable) | ('fdii' in variable) | ('ws' in variable) | ('fg10' in variable) | ('tp' in variable):
         min_value = 0
 
-    # Make the least squares line
+    # Make a least squares regression line between ytrue and ypred
     slope, intercept = least_squares(ypred.flatten()[valid_indices], ytrue.flatten()[valid_indices])
     xhat = np.linspace(min_value, max_value, 100)
     yhat = slope * xhat + intercept
 
-    # Make the plot
+    # Intialize the figure as a 2 x 2 plot with 4:1 ratios (emphasizing the density plot)
     fig, ax = plt.subplot_mosaic([['hist_pred', '.'], ['hist2d', 'hist_true']], figsize = [12, 12],
                                   width_ratios = (4, 1), height_ratios = (1, 4))
     # fig, ax = plt.subplots(figsize = [12, 12])
@@ -1374,45 +1429,65 @@ def make_histogram_scatter_plot(ytrue, ypred, variable, forecast_day, path = './
     # Set the title
     fig.suptitle('2D Histogram for %s\nfor a %02d day forecast'%(full_variable_name, forecast_day), y = 0.93, fontsize = 18)
 
+    # Make the histogram of the predicted labels
     ax['hist_pred'].hist(ypred.flatten()[valid_indices], bins = 100, color = cmap(0.25))
+    # Set the tick information
     ax['hist_pred'].tick_params(axis = 'x', labelbottom = False)
+    # Set the x and y limits
     ax['hist_pred'].set_ylim([0, max_counts])
     ax['hist_pred'].set_xlim([min_value, max_value])
+    # Set the size of the tick labels
     for i in ax['hist_pred'].yaxis.get_ticklabels():
         i.set_size(18)
 
+    # Make the histogram of the true labels
     ax['hist_true'].hist(ytrue.flatten()[valid_indices], bins = 100, color = cmap(0.25), orientation = 'horizontal')
+    # Set the tick information
     ax['hist_true'].tick_params(axis = 'y', labelleft= False)
     ax['hist_true'].tick_params(axis = 'x', labelrotation = 270)
+    # Set the x and y limits
     ax['hist_true'].set_xlim([0, max_counts])
     ax['hist_true'].set_ylim([min_value, max_value])
+    # Set the size of the tick labels
     for i in ax['hist_true'].xaxis.get_ticklabels():
         i.set_size(18)
     
-    # Make the plot; # Note the * 100 turns it from a fraction of the whole to a percentage
+    # Make the density plot
     h2d = ax['hist2d'].hist2d(ypred.flatten()[valid_indices], ytrue.flatten()[valid_indices], bins = 100, 
                               cmin = cmin+0.001, cmax = None, 
                               norm = mcolors.Normalize(vmin=cmin+1e-5, vmax = cmax, clip = True), cmap = cmap)
     print(np.nanmin(h2d[0]), np.nanmax([h2d[0]]), np.nanmean(h2d[0]))
 
+    # Plot the ideal regression line (slope = 1, bias = 0)
     ax['hist2d'].plot([min_value, max_value], [min_value, max_value], color = 'r', linewidth = 2.5, linestyle = '-')
+    # Plot the linear regression line with slope and bias labeled
     ax['hist2d'].plot(xhat, yhat, color = 'k', linestyle = '-', linewidth = 2.5, label = 'y = %4.2fx + %4.2f'%(slope, intercept))
+
+    # Add the regression line information to the plot
     ax['hist2d'].legend(loc = 'upper left', fontsize = 18)
 
     # Add labels
     ax['hist2d'].set_xlabel('Predicted Labels (%s)'%units[variable], fontsize = 18)
     ax['hist2d'].set_ylabel('True labels (%s)'%units[variable], fontsize = 18)
+
+    # Set x and y limits
     ax['hist2d'].set_xlim([min_value, max_value])
     ax['hist2d'].set_ylim([min_value, max_value])
 
-    # Tick information
+    # Set tick size
     for i in ax['hist2d'].xaxis.get_ticklabels() + ax['hist2d'].yaxis.get_ticklabels():
         i.set_size(18)
 
+    # Add a colorbar
     # cbax = fig.add_axes([0.91, 0.11, 0.018, 0.77]) # for vertical orientation
     cbax = fig.add_axes([0.13, 0.03, 0.60, 0.018]) # for horizontal orientation
+    # Add the colorbar
     cbar = mcolorbar.Colorbar(cbax, mappable = h2d[3], orientation = 'horizontal')
+
+    # Add a colorbar label
     cbar.ax.set_xlabel('Counts', fontsize = 16)
+
+    # Set the colorbar tick size
     for i in cbar.ax.xaxis.get_ticklabels():
         i.set_size(18)
     #cb = fig.colorbar(h2d, ax = ax, label = 'Counts')
@@ -1422,37 +1497,42 @@ def make_histogram_scatter_plot(ytrue, ypred, variable, forecast_day, path = './
     plt.show(block = False)
 
 
-def make_histogram(metric, variable, metric_name, path = './Figures/', savename = 'timeseries.png'):
+def make_histogram(
+        metric, 
+        variable, 
+        metric_name, 
+        path: str = './Figures/', 
+        savename: str = 'timeseries.png'
+        ) -> None:
     '''
-    Display a line histogram
+    Make a line histogram plot
+
+    Inputs:
+    :param metric: The data being plotted
+    :param variable: Name of the variable being plotted, must be a key in full_variable_name
+    :param metric_name: Name of the metric being plotted
+    :param path: Directory path to where the plot will be saved
+    :param savename: Filename of the figure when saved
     '''
 
+    # Collect the full name of the variable
     full_variable_name = full_names[variable]
 
+    # Remove NaN values
     valid_indices = np.invert(np.isnan(metric.flatten()))
     plot_metric = metric.flatten()[valid_indices]
 
-    # Make the plot
+    # Initialize the figure
     fig, ax = plt.subplots(figsize = [12, 8])
 
     # Set the title
     # ax.set_title('Distribution of %s for %s'%(metric_name.upper(), full_variable_name), fontsize = 18)
     ax.set_title('%s'%(full_variable_name), fontsize = 18)
     
-    # Make the plot; # Note the * 100 turns it from a fraction of the whole to a percentage
+    # Make the plot; # Note the * 100 in weights turns it from a fraction of the whole to a percentage
     bins = ax.hist(plot_metric, bins = 80, weights = 100 * np.ones((plot_metric.size))/plot_metric.size, 
                    histtype = 'step', log = True, color = 'black', linewidth = 1.0)
 
-
-    # Plot climatology and persistence (note these include forecasts at day = 0, so start from 1)
-    # if climatology is not None:
-    #     ax.plot(y, climatology, color = 'g', linewidth = 2.5, label = 'Climatology')
-
-    # if persistence is not None:
-    #     ax.plot(y, persistence, color = 'b', linewidth = 2.5, label = 'Persistence')
-
-    # if (climatology is not None) | (persistence is not None):
-    #     ax.legend(fontsize = 18)
         
     # Add labels
     ax.set_ylabel('Fraction of pixels at error (%)', fontsize = 18)
@@ -1466,12 +1546,40 @@ def make_histogram(metric, variable, metric_name, path = './Figures/', savename 
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
 
-def make_metric_error_plots(ytrue, files, time, lat, lon,
-                            sname, plot_sname, subset, variable, apply_mask, data_path, figure_path):
+def make_metric_error_plots(
+        ytrue, 
+        files, 
+        time, 
+        lat, 
+        lon, 
+        sname, 
+        plot_sname, 
+        subset, 
+        variable, 
+        apply_mask, 
+        data_path, 
+        figure_path
+        ) -> None:
     '''
+    Create a set of error plots for a case study/set of predictions
+    Plots include a map of the time averaged RMSE and ACC in space, and a histogram of RMSE
+
+    Inputs:
+    :param ytrue: Array of true labels (np.ndarray with shape time x lat x lon)
+    :param files: List of filenames pointing to .nc files with predictions
+    :param time: List time labels for each timestep in ytrue
+    :param lat: Gridded latitude labels for making the maps (np.ndarray with shape lat x lon)
+    :param lon: Gridded longitude labels for making the maps (np.ndarray with shape lat x lon)
+    :param sname: Short name of the variable being plotted (i.e., the variable name in the .nc files)
+    :param plot_sname: The short name of the variable, used for plotting. Must be a key in variables, full_names, etc.
+    :param subset: Name of the subset the data is plotted over
+    :param variable: Full name of the variable being plotted (used for making filenames for figures and checking upper air variables)
+    :param apply_mask: Boolean indicating whether to apply land-sea and aridity masks before calculating RMSE and ACC
+    :param data_path: Directory path pointing to directory with latitude weights and masks
+    :param figure_path: Directory path pointing to where figures will be saved
     '''
 
-    # Need to get sname and args.variable and lat and lon and times
+    # Turn the time labels into an array of datetimes
     time = np.array([t.to_pydatetime() for t in time])
 
     y_pred = []
@@ -1482,7 +1590,7 @@ def make_metric_error_plots(ytrue, files, time, lat, lon,
         tmp = nc.variables['latitude'][:]
         tmp = np.cos(tmp*np.pi/180)
 
-    # exampe weights to the same shape as the variable data
+    # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
     latitude_weights = np.ones((ytrue.shape[1], ytrue.shape[2]))
     for j in range(latitude_weights.shape[-1]):
         latitude_weights[:,j] = tmp
@@ -1490,9 +1598,11 @@ def make_metric_error_plots(ytrue, files, time, lat, lon,
     # Load in the predictions
     for file in new_sort(files):
         with Dataset(file, 'r') as nc:
+            # Date labels for the predictions
             time_pred_tmp = nc.variables['time'][:]
             time_pred.append(datetime(1900,1,1) + timedelta(hours = time_pred_tmp.item()))
             
+            # Load the predicted variable
             if ('200 mb' in variable) | ('200_mb' in variable):
                 y_pred.append(nc.variables[sname][0,0,:,:])
             elif ('500 mb' in variable) | ('500_mb' in variable):
@@ -1502,6 +1612,7 @@ def make_metric_error_plots(ytrue, files, time, lat, lon,
 
     y_pred = np.array(y_pred)
     
+    # Focus on the prediction times
     time_ind = np.where( (time >= time_pred[0]) & (time <= time_pred[-1]) )[0]
     ytrue = ytrue[time_ind,:,:]
 
@@ -1510,12 +1621,14 @@ def make_metric_error_plots(ytrue, files, time, lat, lon,
     rmse = calculate_rmse_in_space(y_pred, ytrue, latitude_weights = latitude_weights)
 
 
-    # make the plots
+    # Make the plots
     if subset is not None:
+        # Make the RMSE and ACC plots in space
         make_error_subset_map(acc, rmse, lat, lon, subset,
                               var_name = plot_sname,
                               path = figure_path, savename = '%s_%s_error_map.png'%(subset, variable))
         
+        # Apply aridity and land-sea masks
         if apply_mask:
             # with Dataset('%s/aridity_mask.nc'%data_path, 'r') as nc:
             with Dataset('%s/aridity_mask_reduced.nc'%data_path, 'r') as nc:
@@ -1534,6 +1647,7 @@ def make_metric_error_plots(ytrue, files, time, lat, lon,
             rmse = np.where(ai_mask == 1, rmse, np.nan)
             rmse = np.where(lsm_mask == 1, rmse, np.nan)
             
+        # Make the RMSE histogram plot
         make_histogram(rmse, plot_sname, 'rmse', path = figure_path, savename = '%s_%s_rmse_histogram.png'%(subset, variable))
 
 def make_physical_comparison_plot():
@@ -1542,23 +1656,68 @@ def make_physical_comparison_plot():
     '''
     return
 
-def running_sum(data, N = 7):
+def running_sum(
+        data, 
+        N: int = 7
+        ) -> np.ndarray:
     '''
     Calculate an N day (end point) running sum 
+
+    Inputs: 
+    :param data: The dataset used to make the running sum (1D np.ndarray)
+    :param N: Length of the running sum
+
+    Outputs:
+    :param run_sum: The running summation of data
     '''
     # data = data.astype(np.float64) # Change data to float64 to prevent precision errors in the center of data
 
+    # Collect information on the dataset
     T= data.size
     data_copy = data.copy()
 
+    # Peform the running summation using convolution
     run_sum = np.zeros((T, ))
     run_sum = np.convolve(data_copy, np.ones((N,)))[(N-1):]
+
     # print(N, run_sum)
     return run_sum
 
-def calculate_percentiles(data, timeseries, times, Nmax, months, days):
+def calculate_percentiles(
+        data, 
+        timeseries, 
+        times, 
+        Nmax, 
+        months, 
+        days
+        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     '''
-    Calculate a sequence (max, 98th, 95th, 90th, 80th, 70th, 50th, 30th, 20th, 10th, 5th, 2nd, min) of percentiles for a time series
+    Calculate a sequence (max, 98th, 95th, 90th, 80th, 70th, 50th, 30th, 20th, 10th, 5th, 2nd, min) 
+    of percentiles for a time series
+
+    Inputs:
+    :param data: Input time series (a subset of timeseries) to accumulate
+    :param timeseries: Timeseries to make statistics of
+    :param times: Datetime labels for each time step in timeseries
+    :param Nmax: Maximum number of days to perform accumulations
+    :param months: Month labels for each time step in the full time series
+    :param days: Day labels for each time step in the full time series
+
+    Outputs:
+    :param data: The original dataset with accumulated levels at each time step
+    :param percentiles_100: The maximum of timeseries at different accumulation levels
+    :param percentiles_98: 98th percentile of timeseries at different accumulation levels
+    :param percentiles_95: 95th percentile of timeseries at different accumulation levels
+    :param percentiles_90: 90th percentile of timeseries at different accumulation levels
+    :param percentiles_80: 80th percentile of timeseries at different accumulation levels
+    :param percentiles_70: 70th percentile of timeseries at different accumulation levels
+    :param percentiles_50: The median of timeseries at different accumulation levels
+    :param percentiles_30: 30th percentile of timeseries at different accumulation levels
+    :param percentiles_20: 20th percentile of timeseries at different accumulation levels
+    :param percentiles_10: 10th percentile of timeseries at different accumulation levels
+    :param percentiles_5: 5th percentile of timeseries at different accumulation levels
+    :param percentiles_2: 2nd percentile of timeseries at different accumulation levels
+    :param percentiles_0: The minimum of timeseries at different accumulation levels
     '''
 
     # Initialize percentiles
@@ -1578,8 +1737,10 @@ def calculate_percentiles(data, timeseries, times, Nmax, months, days):
 
     # Convert the time series to float64 to avoid rounding and precision errors that cause unstable summations
     timeseries = timeseries.astype(np.float64)
+    data = data.astype(np.float64)
 
-    # Loop backwards through time, summing each point in the data and calculation statistics relative to the N-day accumulation and day of year
+    # Loop backwards through time, summing each point in the data 
+    # and calculate statistics relative to the N-day accumulation and day of year
     n = 1
     for t in range(times.size):
         # Get the indices for all times with the current date (up to t to avoid end of window errors)
@@ -1589,7 +1750,7 @@ def calculate_percentiles(data, timeseries, times, Nmax, months, days):
             # Add to the data (N-day accumulation)
             data[t] = data[t] + data[t-1]
 
-            # Conduction a running summation of N days for statistics to compare data_plot to
+            # Conducte a running summation of N days for statistics
             tmp = running_sum(timeseries, n)
 
             n = n + 1
@@ -1628,8 +1789,7 @@ def calculate_percentiles(data, timeseries, times, Nmax, months, days):
             percentiles_0.append(np.nan)
 
 
-    # Turn the statistics into arrays and reverse them so they go forward in time 
-    # Note the reversing step is not necessary, it just makes them consistent with data_plot and time_plot
+    # Turn the statistics into arrays
     percentiles_100 = np.array(percentiles_100)
     percentiles_98 = np.array(percentiles_98)
     percentiles_95 = np.array(percentiles_95)
@@ -1646,24 +1806,30 @@ def calculate_percentiles(data, timeseries, times, Nmax, months, days):
 
     return data, percentiles_100, percentiles_98, percentiles_95, percentiles_90, percentiles_80, percentiles_70, percentiles_50, percentiles_30, percentiles_20, percentiles_10, percentiles_5, percentiles_2, percentiles_0
 
-def make_drought_fingerprint_plot(timeseries, timeseries_prediction, times, 
-                                  start, variable = 'precipitation', region = 'east africa'):
+def make_modified_fingerprint_plot(
+        timeseries, 
+        timeseries_prediction, 
+        times, 
+        start, 
+        variable: str = 'precipitation', 
+        region: str = 'east africa'
+        ) -> None:
     '''
-    Make the drought fingerprint plot
+    Make a modified drought fingerprint plot
+    (modified in the two plots are seasonal-to-subseason and short range, 
+    the plot goes forward in time, and also plots a prediction of the time series)
 
-    Fix ticks and colors
+    Inputs:
+    :param timeseries: Timeseries of the variable to be plotted (np.ndarray with shape time)
+    :param timeseries: Prediction of timeseries by some model to be plotted on the S2S panel (np.ndarray with shape time_S2S_scale)
+    :param times: Datetime labels for each timestep in timeseries (np.ndarray with shape time)
+    :param start: The start date of the data plotted fingerprint (datetime)
+    :param variable: Name of the variable being plotted; must be a key in get_var_shortname
+    :param region: Name of the spatial region the time series represents
     '''
     # Get the variable short name
     sname = get_var_shortname(variable)
     ndays = [90, 180]
-    
-    # fig, ax = plt.subplots(figsize = [18, 8], ncols = 1)
-
-    # # Set the title
-    # fig.suptitle('Accumulated %s ending %s for %s'%(variable, start.strftime('%Y-%m-%d'), region.title()), fontsize = 18)
-    # ax.plot(times, running_sum(timeseries, 300), 'b')
-    # ax.set_ylabel('Precip (m)')
-    # plt.savefig('test_fig.png')
 
     # Initialize some variables
     one_year = np.array([datetime(2000, 1, 1) + timedelta(days = t) for t in range(366)])
@@ -1678,7 +1844,7 @@ def make_drought_fingerprint_plot(timeseries, timeseries_prediction, times,
 
     # Convert the time series to float64 to avoid rounding and precision errors that cause unstable summations
     timeseries = timeseries.astype(np.float64)
-
+    timeseries_prediction = timeseries_prediction.astype(np.float64)
 
     # Calculate accumulations for the predictions
     prediction_plot = timeseries_prediction
@@ -1712,20 +1878,16 @@ def make_drought_fingerprint_plot(timeseries, timeseries_prediction, times,
     # Initialize some information
     titles = ['S2S Range', 'Short Range']
 
-    formatters = [
-        DateFormatter('%b'),
-        DateFormatter('%Y')
-    ]
+    # S2S x-tick information
     ticks_short = []# datetime(start.year, (start.month - m)%12, 15) for m in range(int(times_plot.size/30))] # Make ticks for short range; one tick per month
     for m in range(int(times_plot.size/30)):
         if (start.month - m) <= 0:
             ticks_short.append(datetime(start.year, ((start.month - m)%12) + 1, 15))
         else:
             ticks_short.append(datetime(start.year, start.month - m, 15))
-            
-    ticks_long = [datetime(start.year - m, 6, 1) for m in range(int(times_plot.size/365))] # Make ticks for long range; one tick per year 
-    primary_ticks = [ticks_short, ticks_long]
-    secondary_ticks = [np.arange(ndays[0]+1)[::30], np.arange(ndays[1]+1)[::30]] # Ticks for secondary axis
+    
+    # Secondary tick information (will have numbered labels)
+    secondary_ticks = [np.arange(ndays[0]+1)[::30], np.arange(ndays[1]+1)[::30]] 
 
     # Set the title
     fig.suptitle('Accumulated %s ending %s for %s'%(variable, start.strftime('%Y-%m-%d'), region.title()), y = 0.95, fontsize = 18)
@@ -1735,9 +1897,20 @@ def make_drought_fingerprint_plot(timeseries, timeseries_prediction, times,
         ax[m].set_title(titles[m], fontsize = 18)
 
         # Calculate accumulation and percentiles
-        (data, percentiles_100, percentiles_98, percentiles_95, percentiles_90, 
-         percentiles_80, percentiles_70, percentiles_50, percentiles_30, percentiles_20,
-         percentiles_10, percentiles_5, percentiles_2, percentiles_0) = calculate_percentiles(data_plot.copy(), timeseries, times_plot, ndays[m], months, days)
+        (data, 
+         percentiles_100, 
+         percentiles_98, 
+         percentiles_95, 
+         percentiles_90, 
+         percentiles_80, 
+         percentiles_70, 
+         percentiles_50, 
+         percentiles_30, 
+         percentiles_20,
+         percentiles_10, 
+         percentiles_5, 
+         percentiles_2, 
+         percentiles_0) = calculate_percentiles(data_plot.copy(), timeseries, times_plot, ndays[m], months, days)
 
         # Plot the statistics
         ax[m].plot(times_plot, percentiles_100, color = 'white', label = 'maximum')
@@ -1809,22 +1982,26 @@ def make_drought_fingerprint_plot(timeseries, timeseries_prediction, times,
     plt.show(block = False)
 
 
-def make_fingerprint_plot(timeseries, times, start, variable = 'precipitation', region = 'east africa'):
+def make_fingerprint_plot(
+        timeseries, 
+        times, 
+        start, 
+        variable: str = 'precipitation', 
+        region: str = 'east africa'
+        ) -> None:
     '''
-    Make the drought fingerprint plot
+    Make the traditional drought fingerprint plot 
+    (i.e., with a short range plot going 180 days back and a long range plot going to 5 years/1825 days, and going back in time)
 
-    Fix ticks and colors
+    Inputs:
+    :param timeseries: Timeseries of the variable to be plotted (np.ndarray with shape time)
+    :param times: Datetime labels for each timestep in timeseries (np.ndarray with shape time)
+    :param start: The start date of the data plotted fingerprint (datetime)
+    :param variable: Name of the variable being plotted; must be a key in get_var_shortname
+    :param region: Name of the spatial region the time series represents
     '''
     # Get the variable short name
     sname = get_var_shortname(variable)
-    
-    # fig, ax = plt.subplots(figsize = [18, 8], ncols = 1)
-
-    # # Set the title
-    # fig.suptitle('Accumulated %s ending %s for %s'%(variable, start.strftime('%Y-%m-%d'), region.title()), fontsize = 18)
-    # ax.plot(times, running_sum(timeseries, 300), 'b')
-    # ax.set_ylabel('Precip (m)')
-    # plt.savefig('test_fig.png')
 
     # Initialize some variables
     one_year = np.array([datetime(2000, 1, 1) + timedelta(days = t) for t in range(366)])
@@ -1837,7 +2014,7 @@ def make_fingerprint_plot(timeseries, times, start, variable = 'precipitation', 
     times_plot = times[:ind_t[0]]
     data_plot = timeseries[:ind_t[0]]
 
-    # Initialize percentiles
+    # Initialize percentiles lists
     percentiles_100 = []
     percentiles_98 = []
     percentiles_95 = []
@@ -1865,7 +2042,7 @@ def make_fingerprint_plot(timeseries, times, start, variable = 'precipitation', 
             # Add to the data (N-day accumulation)
             data_plot[t] = data_plot[t] + data_plot[t+1]
 
-            # Conduction a running summation of N days for statistics to compare data_plot to
+            # Conduct a running summation of N days for statistics to compare data_plot to
             tmp = running_sum(timeseries, n)
         else:
             tmp = timeseries
@@ -1944,10 +2121,13 @@ def make_fingerprint_plot(timeseries, times, start, variable = 'precipitation', 
     titles = ['Short Range', 'Long Range']
     ndays = [180, 1825]
 
+    # Formattin information for the short range and long range plots
     formatters = [
         DateFormatter('%b'),
         DateFormatter('%Y')
     ]
+
+    # Tick information for short range plot
     ticks_short = []# datetime(start.year, (start.month - m)%12, 15) for m in range(int(times_plot.size/30))] # Make ticks for short range; one tick per month
     for m in range(int(times_plot.size/30)):
         if (start.month - m) <= 0:
@@ -1955,9 +2135,11 @@ def make_fingerprint_plot(timeseries, times, start, variable = 'precipitation', 
         else:
             ticks_short.append(datetime(start.year, start.month - m, 15))
             
+    # Tick information for long range plot
     ticks_long = [datetime(start.year - m, 6, 1) for m in range(int(times_plot.size/365))] # Make ticks for long range; one tick per year 
-    primary_ticks = [ticks_short, ticks_long]
-    secondary_ticks = [np.arange(ndays[0]+1)[::30], np.arange(ndays[1]+1)[::365]] # Ticks for secondary axis
+    
+    primary_ticks = [ticks_short, ticks_long] # Primary ticks (will have month name/year labels)
+    secondary_ticks = [np.arange(ndays[0]+1)[::30], np.arange(ndays[1]+1)[::365]] # Ticks for secondary axis (will have numbered labels)
 
     # Set the title
     fig.suptitle('Accumulated %s ending %s for %s'%(variable, start.strftime('%Y-%m-%d'), region.title()), y = 0.95, fontsize = 18)
@@ -1991,7 +2173,6 @@ def make_fingerprint_plot(timeseries, times, start, variable = 'precipitation', 
 
         sec_xaxis.xaxis.set_ticks(secondary_ticks[m])#, labels = secondary_ticks[m].astype(str).tolist())
 
-        #sec_xaxis.grid(True, axis = 'x', color = 'black', linewidth = 2, linestyle = ':')
         # A work around secondary_xaxis.grid() plotting nothing; manually make a line for each tick on the main axis
         for line in sec_xaxis.get_xticks():
             if (line == 0) | (line == ndays[0]) | (line == ndays[1]):
@@ -2031,11 +2212,38 @@ def make_fingerprint_plot(timeseries, times, start, variable = 'precipitation', 
     plt.show(block = False)
 
 
-def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', score = 'rmse', subset = None,
-                     cmin = -15, cmax = 15, cint = 1, path = './', savename = 'tmp_scorecard.png'):
+def make_score_cards(
+        base_score, 
+        prediction_score, 
+        months, 
+        variable: str = 'swvl1', 
+        score: str = 'rmse', 
+        subset: str = 'none',
+        cmin: int = -15, 
+        cmax: int = 15, 
+        cint: float = 1.0, 
+        path: str = './', 
+        savename: str = 'tmp_scorecard.png'
+    ) -> None:
     '''
+    Create score cards of a metric for summer winter, and all months, and base scores plotted for reference.
+
+    Inputs:
+    :param base_score: The base scores the model skill will be compared against (np.array of shape time x lead time)
+                       (i.e., score cards will show if prediction_score is better or worse than base_score)
+    :param prediction_score: Skill score/metric of a set of model predictions (np.array of shape time x lead time)
+    :param months: Month labels for every time step in base_score/prediction_score (np.array of shape time)
+    :param variable: Short name of the various the score cards are being made for (must be a key in full_names and units)
+    :param score: Name of the skill score/metric that is being plotted/compared in the score card
+    :param subset: Name of the regional subset the metrics are for
+    :param cmin: The maximum value for the colorbar
+    :param cmax: The minimum value for the colorbar
+    :param cint: The interval between eavh number in the colorbar
+    :param path: The path to the directory where the scorecard will be saved
+    :param savename: The save/file name the scorecard will be saved as
     '''
 
+    # Determin the regional label based on the subset
     if subset is None:
         label = 'Global'
     elif subset == 'sh':
@@ -2047,29 +2255,29 @@ def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', s
     else:
         label = subset.title()
     
-    Nrows = 4 # Number of rows in the table (Base prediction, all months, summer and sprint months, fall and winter months)
+    Nrows = 4 # Number of rows in the table (Base prediction, all months, summer and winter months, fall and winter months)
     Nprediction_steps = 10 # Number of lead times to show
     y_labels = ['Climatology',
                 label, 
                 #'CrossFormer\nAll Months', 
                 'CrossFormer\nMAMJJA Months', 
                 'CrossFormer\nSONDJF Months']
-    inds = [0, 9, 19, 29, 39, 49, 59, 69, 79, 89]
+    inds = [0, 9, 19, 29, 39, 49, 59, 69, 79, 89] # Lead times to plot on the score card
 
     T, Nforecast_days = base_score.shape
 
     ### Create the matrix to hold displayed values.
     display_values = np.ones((Nrows, Nprediction_steps))
 
+    # Metric scores for all months
     display_values[0,:] = np.nanmean(base_score, axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)] # Base predictions have 0% change/improvement since that is the base level
-    # Percent change relative to all years
     display_values[1,:] = np.nanmean(prediction_score, axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)]
 
-    # Percent change for all spring and summer months
+    # Metric scores for all spring and summer months
     ind_summer = np.where( (months >= 3) & (months <= 8) )[0]
     display_values[2,:] = np.nanmean(prediction_score[ind_summer,:], axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)]
 
-    # Percent change for all fall and winter months
+    # Metric scores for all fall and winter months
     ind_winter = np.where( (months >= 9) | (months <= 2) )[0]
     display_values[3,:] = np.nanmean(prediction_score[ind_winter,:], axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)]
 
@@ -2077,8 +2285,8 @@ def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', s
     ### Create the matrix to make the table of.
     table_plot = np.ones((Nrows, Nprediction_steps))
 
-    table_plot[0,:] = 0 # Base predictions have 0% change/improvement since that is the base level
-    # Percent change relative to all years
+    # Percent change relative to all months
+    table_plot[0,:] = 0 # Base scores have 0% change/improvement since they are the base level
     table_plot[1,:] = ((display_values[1,:] - display_values[0,:]) / display_values[0,:]) * 100
     # table_plot[1,:] = np.nanmean(percent_change, axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)]
 
@@ -2093,11 +2301,11 @@ def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', s
     # For squared error, improvement is lower scores (reverse change for lower values is improvement)
     table_plot = table_plot if score == 'acc' else -1 * table_plot
 
-    # Color information
-    # cmin = -15; cmax = 15; cint = 1
+    # Colorbar information
     clevs = np.arange(cmin, cmax + cint, cint)
     nlevs = len(clevs)-2
 
+    # Create the color in the colorbar
     if nlevs % 2 == 0:
         ncolors = int(np.floor(nlevs/2))
         grays = [(0.95, 0.95, 0.95)]
@@ -2108,15 +2316,17 @@ def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', s
     reds = sns.color_palette('Reds_r', ncolors)
     blues = sns.color_palette('Blues', ncolors)
  
+    # Create the colormap
     cmap = mcolors.ListedColormap(reds + grays + blues, name = 'rb_scorecard')
     # norm = mcolors.BoundaryNorm(clevs, cmap.N, extend = 'both')
 
     # cmap = plt.get_cmap('Spectral', lut = nlevs) #Another color being 'coolwarm'
 
-    # Make the table
+    # Initialize the figure
     fig, axes = plt.subplots(figsize = [20, 4], nrows = Nrows, ncols = 1)
     plt.subplots_adjust(hspace = 0.09)
 
+    # Make the tables
     for row in range(Nrows):
         ax = axes[row]
 
@@ -2125,52 +2335,45 @@ def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', s
         im_plot[0,:] = table_plot[row,:]
 
         if row == 0:
-            im = ax.imshow(im_plot, vmin = -4, vmax = 1, cmap = 'gray', 
+            # vmin and vmax were selected to tune the type of 'gray' in the gray colormap
+            im = ax.imshow(im_plot, vmin = -4, vmax = 1, cmap = 'gray',
                            interpolation = 'nearest')
         else:
             im = ax.imshow(im_plot, vmin = cmin, vmax = cmax, cmap = cmap, 
                            interpolation = 'nearest')
 
 
-        # Add values to the table
+        # Add numerical values/text to the table
         thresh = cmin * 8.0/10 #(np.nanmax(table_plot) + np.nanmin(table_plot))/2
         for j in range(Nprediction_steps):
             # Color the text
             # color = im.cmap(nlevs) if table_plot[i, j] < thresh else im.cmap(0)
             color = 'white' if np.abs(table_plot[row, j]) > np.abs(thresh) else 'black' # if np.abs(table_plot[row, j]) <= 5 else 'white'
 
-            # Add the text
+            # AMake the text information
             if score == 'acc':
                 text = format(display_values[row, j], '4.2f')
             elif np.nanmean(display_values[row, j]) < 1:
                 text = format(display_values[row, j], '0.2f')
             else:
                 text = format(display_values[row, j], '0.3g')
+
+            # Add the text
             ax.text(j, 0, text, ha = 'center', va = 'center', color = color, fontsize = 16)
 
             # Add a white border between cells
             rect = plt.Rectangle((j-0.5, 0-0.5), 1, 1, fill = False, color = 'white', linewidth = 1.5)
             ax.add_patch(rect)
-        # for i, j in product(range(Nrows), range(Nprediction_steps)):
-        #     # Color the text
-        #     # color = im.cmap(nlevs) if table_plot[i, j] < thresh else im.cmap(0)
-        #     color = 'black' if np.abs(table_plot[i, j]) <= 5 else 'white'
-
-        #     # Add the text
-        #     # text = format(base_score[i, j], '0.3g') if i == 0 else format(prediction_score[i, j], '0.3g')
-        #     text = format(display_values[i, j], '0.3g')
-        #     ax.text(j, i, text, ha = 'center', va = 'center', color = color, fontsize = 14)
-
         # Set the ticks
         if row == (Nrows - 1):
             ax.set_xticks(np.arange(Nprediction_steps))
 
             # Tick labels
-
             xticks = np.arange(0, Nforecast_days+1, Nprediction_steps)
             xticks[0] = xticks[0] + 1
             ax.set_xticklabels(xticks, fontsize = 16)
 
+            # Set the label
             ax.set_xlabel('Lead Time [days]', fontsize = 16)
 
         else:
@@ -2178,11 +2381,12 @@ def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', s
 
             ax.set_xticklabels('')
         
+        # Set y ticks with the corresponding label
         ax.set_yticks(np.arange(1))
 
         ax.set_yticklabels([y_labels[row]], fontsize = 16)
 
-        # Set the spines/grid lines betweehn values
+        # Set the spines/grid lines between each table cell
         for spine in ax.spines.values():
             spine.set_edgecolor('#808080')
             spine.set_linewidth(2.0)
@@ -2211,405 +2415,52 @@ def make_score_cards(base_score, prediction_score, months, variable = 'swvl1', s
     plt.show(block = False)
 
 
-def plot_ffts(true_labels, predicted_labels, hour = 24):
+def plot_ffts(
+        true_labels, 
+        predicted_labels, 
+        hour: int = 24
+    ) -> None:
     '''
-    Plot make and plot the Fourier transforms for a truth and prediction dataset.
+    Plot the Fourier transforms for a truth and prediction dataset.
+
+    Inputs:
+        :param true_labels: The true labels to plotted
+        :param predicted_labels: Model predictions to be plotted
+        :param hour: Forecast hour/lead time (in hours) of model predictions
     '''
     # Make the fast Fourier transforms (FFTs)
     true_ffts = fft.fft(true_labels.flatten())
     predicted_ffts = fft.fft(predicted_labels.flatten())
 
+    # Obtain the spectrum by computing the modulus of the FFTs
     true_spectrum = np.real(true_ffts)**2 + np.imag(true_ffts)**2
     predicted_spectrum = np.real(predicted_ffts)**2 + np.imag(predicted_ffts)**2
 
 
-    # Make the plot
+    # Initialize the plots
     fig, ax = plt.subplots(figsize = [10, 10])
+
+    # Plot the data
     ax.plot(true_spectrum[1:101], 'r', linewidth = 1.5, label = 'True Labels')
     ax.plot(predicted_spectrum[1:101], 'b', linewidth = 1.5, label = 'Predicted Labels')
+
+    # Add the legend
     ax.legend(loc = 'upper right')
 
+    # Add labels
     ax.set_ylabel('Power Spectra', fontsize = 14)
     ax.set_xlabel('Wavenumber', fontsize = 14)
 
+    # Set tick size
     for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
         i.set_size(14)
 
+    # Save the figure
     plt.savefig('spatial_power_spectra_%02d_day_forecast.png'%int(hour/24))
 
 
-def make_comparison_subset_map_2(y, y_pred, climatology, lat, lon, time, subset,
-                               var_name = 'tmp', forecast_hour = None,
-                               path = './Figures/', savename = 'timeseries.png'):
-    '''
-    Create and save a generic map of y and y_pred for a subsetted region
-
-    TODO:
-        Adjust spacing between figures
-        Adjust title to include forecast hour/day
-        Adjust colorbar
-        Update docs
-        Bugfixes
-    
-    Inputs:
-    #:param var: 2D array of the variable to be mapped # Add y and y_pred and time and forecast_hour
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
-    '''
-    
-    # Subset information
-    lower_lat = subset_information[subset]['map_extent'][0]; upper_lat = subset_information[subset]['map_extent'][1]
-    lower_lon = subset_information[subset]['map_extent'][2]; upper_lon = subset_information[subset]['map_extent'][3]
-
-    # Set colorbar information
-    cname = color_information[var_name]['cname']
-    cmin = color_information[var_name]['climits'][0]; cmax = color_information[var_name]['climits'][1]; cint = (cmax - cmin)/20
-
-    #cmin = 0; cmax = np.round(np.nanmax(np.stack([y, y_pred]))*1.10, 1); cint = (cmax - cmin)/20
-    clevs = np.arange(cmin, cmax + cint, cint)
-    nlevs = len(clevs)
-    cmap  = plt.get_cmap(name = cname, lut = nlevs)
-    
-    # Lonitude and latitude tick information
-    lat_int = 10
-    lon_int = 20
-    
-    LatLabel = np.arange(-90, 90, lat_int)
-    LonLabel = np.arange(-180, 180, lon_int)
-    
-    LonFormatter = cticker.LongitudeFormatter()
-    LatFormatter = cticker.LatitudeFormatter()
-    empty_formatter = cticker.LatitudeFormatter(cardinal_labels = {'north': '', 'south': ''})
-    
-    # Projection information
-    data_proj = ccrs.PlateCarree()
-    fig_proj  = ccrs.PlateCarree()
-    
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    
-    title_information = full_names[var_name]
-    if forecast_hour is None:
-        labels = ['True %s'%title_information, 'Climatolgoy prediction', '%s Prediction'%title_information]
-    else:
-        labels = ['True %s'%title_information, 'Climatology prediction', '%d Day %s Prediction'%(forecast_hour/24, title_information)]
-
-    # Create the figure
-    fig, axes = plt.subplots(figsize = [18, 18], nrows = 1, ncols = 4, 
-                             subplot_kw = {'projection': fig_proj})
-    plt.subplots_adjust(wspace = subset_information[subset]['wspace'], hspace = subset_information[subset]['hspace'])
-    for n, data in enumerate([y, climatology, y_pred]):
-        # Set the title
-        axes[n].set_title('%s\nValid for %s'%(labels[n], time.isoformat()), size = 14)
-        
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-        axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
-
-        # Ocean covers and "masks" data outside the U.S.
-        axes[n].coastlines(edgecolor = 'black', zorder = 3)
-        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
-
-        # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 14}
-            gl.ylabel_style = {'size': 14}
-            gl.rotate_labels = False
-        else:
-            axes[n].set_xticks(LonLabel, crs = data_proj)
-
-            axes[n].set_xticklabels(LonLabel, fontsize = 14)
-
-            axes[n].xaxis.set_major_formatter(LonFormatter)
-
-            if n == 0:
-                axes[n].set_yticks(LatLabel, crs = data_proj)
-
-                axes[n].set_yticklabels(LatLabel, fontsize = 14)
-                
-                axes[n].yaxis.set_major_formatter(LatFormatter)
-            else:
-                axes[n].yaxis.set_major_formatter(empty_formatter)
-
-        # Plot the data
-        cs = axes[n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
-                                cmap = cmap, transform = data_proj, zorder = 1)
-
-        # Set the map extent
-        axes[n].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
-
-
-    # Set the colorbar size and location
-    if (var_name == 'ndvi') | (var_name == 'fpar') | (var_name == 'cvh') | (var_name == 'cvl'):
-        extend = None
-    elif ('tp' in var_name) | ('swvl' in var_name) | ('fdii' in var_name) | ('q_tot' in var_name) | (var_name == 'ws') | (var_name == 'fg10') | (var_name == 'ssr'):
-        extend = 'max'
-    else:
-        extend = 'both'
-
-    # cbax = fig.add_axes([0.925, 0.365, 0.020, 0.26]) # Settings for a single row
-    cbax = fig.add_axes(subset_information[subset]['colorbar_coord'][0])#[0.925, 0.535, 0.020, 0.21])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = extend, orientation = 'horizontal')
-    cbar.ax.set_xlabel('%s (%s)'%(variables[var_name], units[var_name]), fontsize = 14)
-
-    # Set the colorbar ticks
-    for i in cbar.ax.xaxis.get_ticklabels():
-        i.set_size(14)
-        
-
-
-    # Make the true - pred plot
-    cmin_new = anomaly_plotting_information[var_name]['difference_climits'][0]; cmax_new = anomaly_plotting_information[var_name]['difference_climits'][1]
-    cint = (cmax_new - cmin_new)/20
-
-    #cmin = 0; cmax = np.round(np.nanmax(np.stack([y, y_pred]))*1.10, 1); cint = (cmax - cmin)/20
-    clevs = np.arange(cmin_new, cmax_new + cint, cint)
-    nlevs = len(clevs)
-    cmap_new = plt.get_cmap(name = 'coolwarm_r', lut = nlevs)
-
-    axes[3].set_title('True - Predicted Labels', size = 14)
-
-    # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-    axes[3].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
-
-    # Ocean covers and "masks" data outside the U.S.
-    axes[3].coastlines(edgecolor = 'black', zorder = 3)
-    axes[3].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
-
-    # Adjust the ticks
-    if fig_proj == ccrs.EckertIII():
-        gl = axes[3].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                draw_labels = True,
-                                x_inline = False, y_inline = False,
-                                lw = 0.8, linestyle = '--', color = 'grey')
-        gl.xlabel_style = {'size': 14}
-        gl.ylabel_style = {'size': 14}
-        gl.rotate_labels = False
-    else:
-        axes[3].set_xticks(LonLabel, crs = data_proj)
-        # axes[3].set_yticks(LatLabel, crs = data_proj)
-
-        # axes[3].set_yticklabels(LatLabel, fontsize = 14)
-        axes[3].set_xticklabels(LonLabel, fontsize = 14)
-
-        axes[3].xaxis.set_major_formatter(LonFormatter)
-        axes[3].yaxis.set_major_formatter(empty_formatter)
-
-    # Plot the data
-    cs = axes[3].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
-                              cmap = cmap_new, transform = data_proj, zorder = 1)
-
-    # Set the map extent
-    axes[3].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
-
-    cbax = fig.add_axes(subset_information[subset]['colorbar_coord'][1])#[0.925, 0.235, 0.020, 0.21])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'horizontal')
-    cbar.ax.set_xlabel('Difference (%s)'%(units[var_name]), fontsize = 14)
-
-    # Set the colorbar ticks
-    for i in cbar.ax.xaxis.get_ticklabels():
-        i.set_size(14)
-    
-        
-    # Save the figure
-    plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
-    plt.show(block = False)
-    plt.close()
-
-
-def make_anomaly_subset_map_2(y, y_pred, lat, lon, time, subset,
-                            var_name = 'tmp', forecast_hour = None,
-                            path = './Figures/', savename = 'timeseries.png'):
-    '''
-    Create and save a generic map of y and y_pred for a subsetted region
-
-    TODO:
-        Adjust spacing between figures
-        Adjust title to include forecast hour/day
-        Adjust colorbar
-        Update docs
-        Bugfixes
-    
-    Inputs:
-    #:param var: 2D array of the variable to be mapped # Add y and y_pred and time and forecast_hour
-    :param lat: 2D array of latitudes
-    :param lon: 2D array of longitudes
-    :param var_name: String. Name of the variable being plotted
-    :param globe: Bool. Indicates whether the map will be a global one or not (non-global maps are fixed on the U.S.)
-    :param path: String. Output path to where the figure will be saved
-    :param savename: String. Filename the figure will be saved as
-    '''
-
-    # Subset information
-    lower_lat = subset_information[subset]['map_extent'][0]; upper_lat = subset_information[subset]['map_extent'][1]
-    lower_lon = subset_information[subset]['map_extent'][2]; upper_lon = subset_information[subset]['map_extent'][3]
-
-    # Set colorbar information
-    cname = 'BrBG' #color_information[var_name]['cname']
-    cmin = anomaly_plotting_information[var_name]['climits'][0]; cmax = anomaly_plotting_information[var_name]['climits'][1]
-    cint = (cmax - cmin)/20
-
-    #cmin = 0; cmax = np.round(np.nanmax(np.stack([y, y_pred]))*1.10, 1); cint = (cmax - cmin)/20
-    clevs = np.arange(cmin, cmax + cint, cint)
-    nlevs = len(clevs)
-    cmap  = plt.get_cmap(name = cname, lut = nlevs)
-    
-    # Lonitude and latitude tick information
-    lat_int = 10
-    lon_int = 20
-    
-    LatLabel = np.arange(-90, 90, lat_int)
-    LonLabel = np.arange(-180, 180, lon_int)
-    
-    LonFormatter = cticker.LongitudeFormatter()
-    LatFormatter = cticker.LatitudeFormatter()
-    empty_formatter = cticker.LatitudeFormatter(cardinal_labels = {'north': '', 'south': ''})
-    
-    # Projection information
-    data_proj = ccrs.PlateCarree()
-    fig_proj  = ccrs.PlateCarree()
-    
-    # Collect shapefile information for the U.S. and other countries
-    # ShapeName = 'Admin_1_states_provinces_lakes_shp'
-    if subset == 'united_states':
-        ShapeName = 'admin_0_countries'
-        CountriesSHP = shpreader.natural_earth(resolution = '110m', category = 'cultural', name = ShapeName)
-
-        CountriesReader = shpreader.Reader(CountriesSHP)
-
-        USGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] == 'United States of America']
-        NonUSGeom = [country.geometry for country in CountriesReader.records() if country.attributes['NAME'] != 'United States of America']
-        
-    title_information = full_names[var_name]
-    if forecast_hour is None:
-        labels = ['True %s'%title_information, '%s Prediction'%title_information]
-    else:
-        labels = ['True %s'%title_information, '%d Day %s Prediction'%(forecast_hour/24, title_information)]
-
-    # Create the figure
-    fig, axes = plt.subplots(figsize = [18, 18], nrows = 1, ncols = 3, 
-                             subplot_kw = {'projection': fig_proj})
-    plt.subplots_adjust(wspace = subset_information[subset]['wspace'], hspace = subset_information[subset]['hspace_anomaly'])
-    for n, data in enumerate([y, y_pred]):
-        # Set the title
-        axes[n].set_title('%s\nValid for %s'%(labels[n], time.isoformat()), size = 16)
-        
-        # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-        axes[n].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
-
-        # Ocean covers and "masks" data outside the U.S.
-        axes[n].coastlines(edgecolor = 'black', zorder = 3)
-        axes[n].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
-
-        # Adjust the ticks
-        if fig_proj == ccrs.EckertIII():
-            gl = axes[n].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                   draw_labels = True,
-                                   x_inline = False, y_inline = False,
-                                   lw = 0.8, linestyle = '--', color = 'grey')
-            gl.xlabel_style = {'size': 14}
-            gl.ylabel_style = {'size': 14}
-            gl.rotate_labels = False
-        else:
-            axes[n].set_xticks(LonLabel, crs = data_proj)
-
-            axes[n].set_xticklabels(LonLabel, fontsize = 14)
-
-            axes[n].xaxis.set_major_formatter(LonFormatter)
-
-            if n == 0:
-                axes[n].set_yticks(LatLabel, crs = data_proj)
-
-                axes[n].set_yticklabels(LatLabel, fontsize = 14)
-                
-                axes[n].yaxis.set_major_formatter(LatFormatter)
-            else:
-                axes[n].yaxis.set_major_formatter(empty_formatter)
-
-        # Plot the data
-        cs = axes[n].pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
-                                cmap = cmap, transform = data_proj, zorder = 1)
-
-        # Set the map extent
-        axes[n].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
-
-
-    # Set the colorbar size and location
-    # cbax = fig.add_axes([0.925, 0.365, 0.020, 0.26]) # Settings for a single row
-    cbax = fig.add_axes(subset_information[subset]['colorbar_coord_anomaly'][0])#[0.925, 0.565, 0.020, 0.26])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = 'both', orientation = 'horizontal')
-    cbar.ax.set_xlabel('%s Anomaly (%s)'%(variables[var_name], units[var_name]), fontsize = 16)
-
-    # Set the colorbar ticks
-    for i in cbar.ax.xaxis.get_ticklabels():
-        i.set_size(16)
-        
-    # Make the true - pred plot
-    cmin_new = anomaly_plotting_information[var_name]['difference_climits'][0]; cmax_new = anomaly_plotting_information[var_name]['difference_climits'][1]
-    cint = (cmax_new - cmin_new)/20
-
-    #cmin = 0; cmax = np.round(np.nanmax(np.stack([y, y_pred]))*1.10, 1); cint = (cmax - cmin)/20
-    clevs = np.arange(cmin_new, cmax_new + cint, cint)
-    nlevs = len(clevs)
-    cmap_new = plt.get_cmap(name = 'coolwarm_r', lut = nlevs)
-    axes[2].set_title('True - Predicted Anomalies', size = 16)
-
-    # Ocean and non-U.S. countries covers and "masks" data outside the U.S.
-    axes[2].add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
-
-    # Ocean covers and "masks" data outside the U.S.
-    axes[2].coastlines(edgecolor = 'black', zorder = 3)
-    axes[2].add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
-
-    # Adjust the ticks
-    if fig_proj == ccrs.EckertIII():
-        gl = axes[2].gridlines(xlocs = LonLabel, ylocs = LatLabel,
-                                draw_labels = True,
-                                x_inline = False, y_inline = False,
-                                lw = 0.8, linestyle = '--', color = 'grey')
-        gl.xlabel_style = {'size': 14}
-        gl.ylabel_style = {'size': 14}
-        gl.rotate_labels = False
-    else:
-        axes[2].set_xticks(LonLabel, crs = data_proj)
-        # axes[2].set_yticks(LatLabel, crs = data_proj)
-
-        # axes[2].set_yticklabels(LatLabel, fontsize = 14)
-        axes[2].set_xticklabels(LonLabel, fontsize = 14)
-
-        axes[2].xaxis.set_major_formatter(LonFormatter)
-        axes[2].yaxis.set_major_formatter(empty_formatter)
-
-    # Plot the data
-    cs = axes[2].pcolormesh(lon, lat, y - y_pred, vmin = cmin_new, vmax = cmax_new,
-                              cmap = cmap_new, transform = data_proj, zorder = 1)
-
-    # Set the map extent
-    axes[2].set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
-
-    cbax = fig.add_axes(subset_information[subset]['colorbar_coord_anomaly'][1])#[0.925, 0.165, 0.020, 0.26])
-    cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap_new, extend = 'both', orientation = 'horizontal')
-    cbar.ax.set_xlabel('Difference (%s)'%(units[var_name]), fontsize = 16)
-    cbar.ax.set_xticks(np.arange(cmin_new, cmax_new+1, 5))
-
-    # Set the colorbar ticks
-    for i in cbar.ax.xaxis.get_ticklabels():
-        i.set_size(16)
-
-    # Save the figure
-    plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
-    plt.show(block = False)
-    plt.close()
-
+# Main function loads in data and makes figures to test functions and tune figure parameters
 if __name__ == '__main__':
-    # Currently just a test for the drought plot
     import zarr
     import numpy as np
     import imageio
@@ -2618,6 +2469,7 @@ if __name__ == '__main__':
     from glob import glob
     # from plotting import make_drought_fingerprint_plot
 
+    # Type of figure to make/test
     make_score_card = True
     make_spectra_plot = False
     create_fingerprint_plot = False
@@ -2626,16 +2478,18 @@ if __name__ == '__main__':
         import pandas as pd
         from utils import get_metric_information, new_sort
 
+        # Initialize variables to be loaded and made
         metrics = {}
         climatology = {}
         persistence = {}
         n = 0
 
+        # Create date information
         start_date = datetime(2001, 1, 1); Ndays = 365
         dates = np.array([start_date + timedelta(days = day) for day in range(Ndays)])
         months = np.array([date.month for date in dates])
 
-        # Determine the path
+        # Determine the path to data to load
         data_path = '%s/forecasts/metrics'%'/ourdisk/hpc/ai2es/sedris/results/rotation_00/'
 
         # Collect all files to load
@@ -2643,13 +2497,9 @@ if __name__ == '__main__':
         clim_files = glob('%s/climatology/rotation_1/africa_clim_2001-*.nc'%('/ourdisk/hpc/ai2es/sedris/results'), recursive = True)
         persist_files = glob('%s/persistence/rotation_01/africa_persist_2001-*.nc'%('/ourdisk/hpc/ai2es/sedris/results'), recursive = True)
 
-        # Select out only those climatology and persistence files that correspond to the rotation being loaded
-        # ind = [np.where(date == all_dates)[0] for date in rotation_dates]
-        # clim_files = new_sort(clim_files)[ind]
-        # persist_files = new_sort(persist_files)[ind]
-
         # Load the metric data + climatology and persistence data
         for m, file in enumerate(new_sort(files)[:150]):
+            # Load the metric information
             metrics[n] = pd.read_csv(file, sep = ',',
                                     index_col = 0, 
                                     header = 0,
@@ -2671,6 +2521,8 @@ if __name__ == '__main__':
             n = n + 1
 
         # Reorganize data to time x forecast day
+
+        # Initialize datasets
         metrics_names = []
         metric_list = {}
         clim_list = {}
@@ -2688,39 +2540,47 @@ if __name__ == '__main__':
             clim_list[metric] = []
             persist_list[metric] = []
             for key in metrics.keys():
-                # Get the metric
+                # Get the metric (each list entry has length forecast_length)
                 metric_list[metric].append(metrics[key][metric])
                 clim_list[metric].append(climatology[key][metric])
                 persist_list[metric].append(persistence[key][metric])
 
             metrics_names.append(metric)
+
+            # Turn the lists into arrays (they will stack along axis = 0, to give the shape N_forecasts x forecast_length)
             metric_list[metric] = np.array(metric_list[metric])
             clim_list[metric] = np.array(clim_list[metric])
             persist_list[metric] = np.array(persist_list[metric])
         
+        # Make/test the score cards
         make_score_cards(clim_list['%s_%s'%('rmse', 'swvl1')], metric_list['%s_%s'%('rmse', 'swvl1')], 
                          months[:150], variable = 'swvl1', score = 'rmse', path = './', savename = 'tmp_scorecard.png')
 
     if make_spectra_plot:
+        # Date information
         year = 2018
 
         hours = np.arange(24, 2160+1, 24)
         start = datetime(2018, 6, 1)
         start_str = start.isoformat()
 
+        # Load true labels for specific year
         root = zarr.open_group('../credit_datasets/surface.%d.zarr'%year)
         # root = zarr.open_group('../credit_datasets/diagnostic.%d.zarr'%year)
         true = root['tp'][:]
 
         for hour in hours:
             print('Forecast %d day'%int(hour/24))
+            # Load the model prediction for each forecast hour
             with Dataset('../backup_credit/forecasts/%sZ/pred_%sZ_%03d.nc'%(start_str[:-6], start_str[:-6], hour), 'r') as nc:
             # with Dataset('/scratch/rarrell/credit_model_single_step/forecasts/%sZ/pred_%sZ_%03d.nc'%(start_str[:-6], start_str[:-6], hour), 'r') as nc:
                 pred = nc.variables['tp'][:]
                 print(pred.shape)
             
+            # Make spectral plots
             plot_ffts(true[int(hour/24),:,:], pred, hour)
 
+        # Make all the spectral plots into a list, to be turned into a small video to examine spectral evolution in forecast lead time
         images = []
         figures = glob('spatial_power_spectra_*_day_forecast.png', recursive = True)
         figures = np.sort(figures)
@@ -2732,59 +2592,103 @@ if __name__ == '__main__':
         imageio.mimsave('%s'%(sname), images, format = 'FFMPEG')
 
     if create_fingerprint_plot:
+        # Variables to plot
+        var = 'precipitation'
+        # var = 'soil moisture'
         variable = []
+
+        # Different regions to examine
         # Southwestern US
+        # region = 'Southwestern US
         # lower_lat = 30
         # upper_lat = 40
         # lower_lon = 240
         # upper_lon = 255
+
         # Southern US
+        # region = 'Southern US'
         # lower_lat = 29
         # upper_lat = 36
         # lower_lon = 258
         # upper_lon = 274
+
         # Central US
+        # region = 'Central US'
         # lower_lat = 35
         # upper_lat = 42
         # lower_lon = 265
         # upper_lon = 275
+
         # Eastern Africa
+        region = 'Eastern Africa'
         lower_lat = -5
         upper_lat = 20
         lower_lon = 35
         upper_lon = 52
 
+        # Date information
         years = np.arange(2000, 2024)
 
+        # Load the true labels
         for year in years:
             print(year)
-            root = zarr.open_group('../credit_datasets/surface.%d.zarr'%year)
-            # root = zarr.open_group('../credit_datasets/diagnostic.%d.zarr'%year)
-            # print(np.nanmin(root['swvl1'][:]), np.nanmax(root['swvl1'][:]), np.nanmean(root['swvl1'][:]))
+
+            # Determine the filename and sname
+            if var == 'precipitation':
+                filename = '../credit_datasets/surface.%d.zarr'%year
+                sname = 'tp'
+            elif var == 'soil moisture':
+                filename = '../credit_datasets/diagnostic.%d.zarr'%year
+                sname = 'swvl1'
+
+            # Load the true labels
+            root = zarr.open_group(filename)
+            # print(np.nanmin(root[sname][:]), np.nanmax(root[sname][:]), np.nanmean(root[sname][:]))
+
+            # Subset to the specified region
             lon_ind = np.where( (root['longitude'][0,:] >= lower_lon) & (root['longitude'][0,:] <= upper_lon) )[0]
             lat_ind = np.where( (root['latitude'][:,0] >= lower_lat) & (root['latitude'][:,0] <= upper_lat) )[0]
-            tmp = np.nanmean(root['tp'][:,:,lon_ind], axis = -1)
-            # tmp = np.nanmean(np.abs(root['swvl1'][:,:,lon_ind]), axis = -1)
+
+            # Perform the spatial average to obtain a time series
+            tmp = np.nanmean(root[sname][:,:,lon_ind], axis = -1)
+            # tmp = np.nanmean(np.abs(root[sname][:,:,lon_ind]), axis = -1)
             variable.append(np.nanmean(tmp[:,lat_ind], axis = -1))
 
         variable = np.concatenate(variable)
 
+        # Obtain the datetime label
         start = datetime(2000, 1, 1)
         times = np.array([start + timedelta(days = t) for t in range(variable.size)])
 
+        # Collevt the start time of the drought fingerprint plot
         start = datetime(2018, 9, 1)
 
+        # Start time in a string format
         start_str = (start - timedelta(days = 90)).isoformat()
+
+        # List of hours to load predictions for
         hours = np.arange(24, 2160+1, 24)
+
         # Load in predictions
         prediction = []
         for hour in hours:
             print('Forecast %d day'%int(hour/24))
-            with Dataset('../backup_credit/forecasts/%sZ/pred_%sZ_%03d.nc'%(start_str[:-6], start_str[:-6], hour), 'r') as nc:
-            # with Dataset('/scratch/rarrell/credit_model_single_step/forecasts/%sZ/pred_%sZ_%03d.nc'%(start_str[:-6], start_str[:-6], hour), 'r') as nc:
-                tmp = np.nanmean(nc.variables['tp'][:])
-                # tmp = np.nanmean(nc.variables['swvl1'][:])
+
+            # Determine the filename and sname
+            if var == 'precipitation':
+                filename = '../backup_credit/forecasts/%sZ/pred_%sZ_%03d.nc'%(start_str[:-6], start_str[:-6], hour)
+                sname = 'tp'
+            elif var == 'soil moisture':
+                filename = '/scratch/rarrell/credit_model_single_step/forecasts/%sZ/pred_%sZ_%03d.nc'%(start_str[:-6], start_str[:-6], hour)
+                sname = 'swvl1'
+
+            # Load thee data
+            with Dataset(filename, 'r') as nc:
+                tmp = np.nanmean(nc.variables[sname][:])
                 prediction.append(tmp)
+        
+        # Turn the predictions into an array
         prediction = np.array(prediction)
 
-        make_drought_fingerprint_plot(variable, prediction, times, start, variable = 'precipitation', region = 'Eastern Africa')
+        # Make/test the drought fingerprint plot
+        make_modified_fingerprint_plot(variable, prediction, times, start, variable = var, region = region)

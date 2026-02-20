@@ -1,12 +1,19 @@
-'''
+'''A test script originally used to test the .gif making
+process for the case study; used for testing and making
+initial performance plots and case studies
+
+(now outdated and replaced by ml_analaysis.py)
+(since this script has largely been replaced comments are 
+ not up to date or follow the same structure as the 
+ rest of the scripts)
+
 Hard assumptions: 1 year of forecasts
 
 Command line:  python Scripts/test_video.py -Y 2018 -m 6 --forecast_days 30 --subset africa -var temperature --apply_mask
 
 NOTE: This is version 3
 TODO:
-    Think about error maps; primes based on means of the 90 predictions, or climatology means?
-    LAM foreast evaluation
+
 '''
 
 # Library impots
