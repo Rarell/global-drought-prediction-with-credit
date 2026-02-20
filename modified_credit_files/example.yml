@@ -2,73 +2,14 @@
 # This is an example yaml file that explains how to define, train, and use AI weather prediciton models in CREDIT
 # --------------------------------------------------------------------------------------------------------------------- #
 
-# TODO:
-#    Custom loss function that masks over Africa
-#    Consider rotations
-#    Get interp_pressure to work with rollout_to_netcdf
-#    Read docs on config file, and update config
-#    get model_summary.py to work
-
-# # Examine (in particular, why is column rain water < column snow water, and why is ET > PET?):
-# with Dataset('moisture_surface/total_column_snow_water_2018.nc', 'r') as nc:
-#     print(np.nanmin(nc.variables['tcsw']), np.nanmax(nc.variables['tcsw']), np.nanmean(nc.variables['tcsw']))
-# 
-# -8.526513e-14 398.45255 1.0072217
-# with Dataset('moisture_surface/total_column_rain_water_2018.nc', 'r') as nc:
-#     print(np.nanmin(nc.variables['tcrw']), np.nanmax(nc.variables['tcrw']), np.nanmean(nc.variables['tcrw']))
-# 
-# -2.1316282e-14 130.84753 0.16859835
-# with Dataset('moisture_surface/2m_dewpoint_temperature_2018.nc', 'r') as nc:
-#     print(np.nanmin(nc.variables['d2m']), np.nanmax(nc.variables['d2m']), np.nanmean(nc.variables['d2m']))
-# 
-# 191.81244 303.716 274.44513
-# with Dataset('potential_evaporation/potential_evaporation_2009.nc', 'r') as nc:
-#     print(np.nanmin(nc.variables['pev']), np.nanmax(nc.variables['pev']), np.nanmean(nc.variables['pev']))
-# 
-# -0.0007355528 9.019623e-05 -2.5783302e-05
-# with Dataset('evaporation/evaporation_2009.nc', 'r') as nc:
-#     print(np.nanmin(nc.variables['e']), np.nanmax(nc.variables['e']), np.nanmean(nc.variables['e']))
-# 
-# -0.0015566093 0.00026701365 -9.2349524e-05
-
-### TODO: Look into making $USER work
-### TODO: Find out how to make aliases and return to *levels, *heights (lat) and *width (lon) (Lines 378 - 394)
-
 ### Commands: python ~/miles-credit/applications/train.py -c example.yml # Makes and trains model
 ###           python ~/miles-credit/applications/model_summary.py -c example.yml # Shows model summary (currently post_conf.activate needs to be False)
 ###           python ~/miles-credit/applications/rollout_to_netcdf.py -c example.yml # Makes predictions and saves to .nc files
 ###           python ~/miles-credit/applications/rollout_metrics.py -c example.yml # Makes metrics; this may not be necessary as rollout_to_netcdf also produces metrics
 
-### Changes:
-##     train.py: L44 - 45, added lines to change dask scheduler to synchronous (turns off multithread processing); currently needed to avoid multithreading hanging the code
-##     distributed.py: L76 - 94: Added lines to ajdust world size based on number of allocated gpus
-##     datasets.era5_singlestep L210 & 214 (np.datetime64), 83 & 86 (.astype("datetime64[h]")) to prevent a mismatch datatype error
-##     datasets.era5_multistep L126 & 128 (.astype("datetime64[h]"))
-##     datasets.era5_multistep_batcher L1083 and 1084: .astype("datetime64[h]")
-##     datasets.era5_singlestep.py: L49, commented out a compact argument, as it isn't needed with scheduler = 'synchronous', but maybe needed if multiprocessing is turned back on
-##     interp.py: L28: added surface_geopotential_var to input variables to prevent 'unused keyword argument' errors when called in output.py
-##     interp.py: L168: added .squeeze remove a dimension error (pressure_grid was shape (1, lat, lon), and 2D was needed)
-##     output.py: L210 - 219: Placed these lines in an if block to prevent issues when interp_pressure is not used
-##     parser.py L861 - 862: Added lines to add a new argument in the "loss" section: use_regional_latitude_weights (determines wether to load 2D weights or original latitude weight loader)
-##     loss.py: L461 - 488: Added function to load 2D latitude weights, used for emphasizing regions
-##     loss.py: L611 - 614: Added if block in main class to check to use 2D latitude weights
-##     parser.py: L948 - 950: Added if block to check if len(train_years) > 2, and add to it if so (allows use of multiple ranges for train_years, e.g., 2000 - 2010 then 2014 - 2024)
-##     datasets.__init__.py: L122 - 125: Added if block to check if len(train_years) > 2, and add to it if so (loads multiple ranges for train_years, e.g., 2000 - 2010 and 2014 - 2024)
-##     model_summary.py: L36 - 40: Added lines to obtain MASTER_ADDR and MASTER_PORT for os.environ (also added accompaning imports)
-##     model_summary.py: L187: Added a line to obtain rank and world size for os.environ (COMMENT OUT WHEN NOT TESTING)
-##     model_summary.py: L162 - 166: Added lines to process config file, and ensure necessary parameters are added (such as inds for postblock; and added accompanying import)
-##     model_summary.py: L167-168: Added lines to incorporate config file for input shape rather than separate arguments
+### TODO: Look into making $USER work
+### TODO: Find out how to make aliases and return to *levels, *heights (lat) and *width (lon) (Lines 378 - 394)
 
-## NOTE: model_summary.py is having issues with postblock (namely, when postblock is added, the summary() function has issues getting lengths from it because it is a dictionary)
-#  For now, added L169 to turn off the postblock when running model_summary.py
-
-## models.crossformer.py (using Upsampling):
-##     L72 - 76: Added nn.Upsample and nn.Conv2d (L76 was commented out)
-##     L80: num_residuals -> num_residuals-1
-##     L508 - 509: Added nn.Upsample for up_block4, and nn.Conv2d for conv_out (L512 - 514 were commented out)
-##     L556: Added conv_out to module structure
-
-### Print statements: 
 
 # the location to save your workspace, it will have 
 # (1) pbs script, (2) a copy of this config, (3) model weights, (4) training_log.csv
