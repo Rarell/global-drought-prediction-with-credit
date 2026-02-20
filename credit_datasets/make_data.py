@@ -16,19 +16,7 @@ from moisture_calculations import calculate_q_total_upper_level
 from transform_grid import interpolate_data, interpolate_to_new_grid
 
 # TODO:
-#    Add to parser
-#    update metadata.yaml file
-#    Add multiprocessing to static function
-#    Might try converting to zarr files, then doing preprocessing calculations
-#    Investigate Nvidia CUDA docs for anything useful
 #    Add calculations for surface moisture (currently stuck at convertin kg m^-2 to kg kg^-1)
-
-
-#    Add regridding to account for different grids between IMERG, MODIS, GLDAS, and ERA5
-#    Calculate SESR and FDII for GLDAS2
-#    Test regridding
-#    Collect Climate indices
-
 
 # Set default zarr format to 2; this speeds up creation of zarr files, 
 # and creates the .zarray, .zattrs, and .zmetadata files that xarray 
