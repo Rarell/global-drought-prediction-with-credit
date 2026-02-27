@@ -1,9 +1,11 @@
 """
-Script to download daily IMERG data from Earth Data HTTPs (1 year of data at the daily times scale is ~ 9.46 GB per variable)
+Script to download daily IMERG data from Earth Data HTTPs 
+(1 year of data at the daily times scale is ~ 9.46 GB per variable)
 
-NOTE: Earth Data requires authentication to access data. Earth Data login credentials in the .netrc file MUST be up to date for the script to run
+NOTE: Earth Data requires authentication to access data. Earth Data 
+      login credentials in the .netrc file MUST be up to date for the script to run
 
-Acceptable names for --variables and --var_snames_imerg (i.e., variable names in the downloaded GLDAS dataset):
+Acceptable names for --variables and --var_snames_imerg (i.e., variable names in the downloaded IMERG dataset):
     --variables:
     - Precipitation: precipitation
     - Random Error: random_error
@@ -23,6 +25,7 @@ import numpy as np
 import argparse
 import requests
 import time
+from typing import Dict
 from tqdm import tqdm
 from netCDF4 import Dataset
 from datetime import datetime, timedelta
@@ -44,31 +47,35 @@ def create_parser():
     return parser
     
 # Create a function to generate a range of datetimes
-def date_range(StartDate, EndDate):
+def date_range(start_date, end_date):
     '''
     This function takes in two dates and outputs all the dates inbetween
-    those two dates.
+    those two dates
     
     Inputs:
-    :param StartDate: A datetime. The starting date of the interval.
-    :param EndDate: A datetime. The ending date of the interval.
+    :param StartDate: Starting date of the interval (must be a datetime)
+    :param EndDate: Ending date of the interval (must be a datetime)
         
     Outputs:
-    - A generator of all dates between StartDate and EndDate (inclusive)
+    - A generator of all dates between start_date and end_date (inclusive)
     '''
     for n in range(int((EndDate - StartDate).days) + 1):
         yield StartDate + timedelta(n) 
     
 # Create a function to load .nc files
-def load_nc(variables, filename, path = './'):
+def load_nc(
+        variables, 
+        filename, 
+        path = './'
+        ) -> Dict[str, np.ndarray]:
     '''
-    Load a .nc file.
+    Load a .nc file
     
     Inputs:
-    :param variables: List of short names of the variables being loaded. I.e., the name used
-                  to call the variable in the .nc file.
-    :param filename: The name of the .nc file.
-    :param path: The path from the current directory to the directory the .nc file is in.
+    :param variables: Short name of the variables being loaded. I.e., the name used
+                      to call the variable in the .nc file
+    :param filename: Name of the .nc file
+    :param path: Path to the directory the .nc file is in
     
     Outputs:
     :param X: A dictionary containing the data loaded from the .nc file. The 
@@ -97,25 +104,31 @@ def load_nc(variables, filename, path = './'):
 
 
 # Function to write netcdf files  
-def write_nc(data, lat, lon, dates, mask = None, filename = 'tmp.nc', var_sname = 'tmp', description = 'Description', path = './'):
+def write_nc(
+        data, 
+        lat, 
+        lon, 
+        dates, 
+        mask = None, 
+        filename = 'tmp.nc', 
+        var_sname = 'tmp', 
+        description = 'Description', 
+        path = './'
+        ) -> None:
     '''
-    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file.
+    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file
     
     Inputs:
-    :param data: The variable being written (time x lat x lon format).
-    :param lat: The latitude data with the same spatial grid as var.
-    :param lon: The longitude data with the same spatial grid as var.
-    :param dates: The timestamp for each pentad in data in a %Y-%m-%d format, same time grid as data.
-    :param mask: Land-sea mask to be added to the dataset.
-    :param filename: The filename of the .nc file being written.
-    :param sm: A boolean value to determine if soil moisture is being written. If true, an additional variable containing
-               the soil depth information is provided.
-    :param VarName: The full name of the variable being written (for the nc description).
-    :param VarSName: The short name of the variable being written. I.e., the name used
-                     to call the variable in the .nc file.
-    :param description: A string descriping the data.
-    :param path: The path to the directory the data will be written in.
-
+    :param data: The variable being written (np.ndarray with shape time x lat x lon)
+    :param lat: Latitude labels (np.ndarray with shape lat)
+    :param lon: Longitude labels (np.ndarray with shape lon)
+    :param dates: Timestamps for each day in data in a %Y-%m-%d format (np.ndarray with shape time)
+    :param mask: Land-sea mask to be added to the dataset (np.ndarray with shape lat x lon)
+    :param filename: The filename of the .nc file being written
+    :param var_sname: The short name of the variable being written. I.e., the name used
+                      to call the variable in the .nc file.
+    :param description: A description string for the data
+    :param path: The path to the directory the data will be written in
     '''
     
     # Determine the spatial and temporal lengths
@@ -126,7 +139,6 @@ def write_nc(data, lat, lon, dates, mask = None, filename = 'tmp.nc', var_sname 
         # Write a description for the .nc file
         nc.description = description
 
-        
         # Create the spatial and temporal dimensions
         nc.createDimension('lat', size = I)
         nc.createDimension('lon', size = J)
@@ -148,6 +160,7 @@ def write_nc(data, lat, lon, dates, mask = None, filename = 'tmp.nc', var_sname 
         nc.createVariable(var_sname, data.dtype, ('time', 'lon', 'lat'))
         nc.variables[str(var_sname)][:,:,:] = data[:,:,:]
         
+        # Add the mask data is necessary
         if np.invert(mask is None):
              nc.createVariable('landmask', mask.dtype, ('lon', 'lat'))
              nc.variables['landmask'][:,:] = mask[:,:]
@@ -188,9 +201,9 @@ if __name__ == '__main__':
     n = 0
     while n < timestamps.size:
     # for n, timestamp in tqdm(enumerate(timestamps)):  
-        # Construct the URL
         print('On day %s'%timestamps[n].strftime('%b %d, %Y'))
         
+        # Construct the URL
         url = '%s/%04d/%02d/'%(url_base, timestamps[n].year, timestamps[n].month)
         fn = fn_base%(timestamps[n].year, timestamps[n].month, timestamps[n].day)  
                 
@@ -209,7 +222,8 @@ if __name__ == '__main__':
         # Load in the data
         try:
             data = load_nc(args.var_snames_imerg, fn, path = './raw/')
-        except OSError: # Most likely error when loading the data was a bad download (file is truncated/became corrupted; only a few KB are downloaded in this case)
+        except OSError: # Most likely error when loading the data was a bad download 
+                        # (file is truncated/became corrupted; only a few KB are downloaded in this case)
             if (os.path.getsize('./raw/%s'%fn) < 2e7): # Check if the file is below 20 MB
                 print('Bad download occurred - removing it and trying again')
                 
@@ -218,7 +232,7 @@ if __name__ == '__main__':
             else:
                 raise Exception('OSError: A download error occurred, please remove %s and try downloading again'%fn)
     
-        # Average all data points in the day for a daily mean
+        # Collect all variables in the daily values
         for variable, sname in zip(args.variables, args.var_snames_imerg):
             data[sname] = np.where(data[sname] == -9999.0, np.nan, data[sname]) # Replace missing values with NaN
     
@@ -232,11 +246,13 @@ if __name__ == '__main__':
             end_of_year = (timestamps[n] == timestamps[-1])
         
         if end_of_year:
+            # Construct the data description
             desc_base = 'Daily %s (%s) data for the Integrated Multi-satellitE Retrievals for the GPM (IMERG) dataset for %d.'
             desc_end  = 'Timestamps are string, IMERG land-sea mask is included, and data is time x lon x lat format. \n' +\
                         'title: GPM IMERG Final Precipitation L3 1 day 0.1 degree x 0.1 degree (GPM_3IMERGDF) \n' +\
                         'citation doi: https://doi.org/10.5067/GPM/IMERGDF/DAY/07 \n'
-                        
+
+            # Process each variable and write it      
             for variable in args.variables:
                 data_year[variable] = np.array(data_year[variable])
                 

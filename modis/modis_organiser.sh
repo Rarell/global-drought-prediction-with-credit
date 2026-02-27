@@ -38,7 +38,7 @@ elif [[ "$MODIS_PRODUCT" == "MOD15A2H" ]]; then
     GLOBALDIRECTORY=("./global/lai/" "./global/fpar/")
     VARIABLES=("modis.lai" "modis.fpar")
 fi
-#### NEED TO ADD: Land cover, DSR, FIX reflectance
+#### NEED TO ADD: Land cover, DSR
 
 
 #tiles=find ./raw/evaporation_and_potential_evaporation/ -minidepth 1 -maxdepth 1 -type d {'*'}
@@ -55,13 +55,15 @@ for FILE in ./raw/evaporation_and_potential_evaporation/2000/*; do
     [[ -d $FILE ]] && TILES+=("${FILE:49:53}")
 done
 
-for YEAR in {2023..2024}; do
+for YEAR in {2000..2024}; do
     echo $YEAR
+    # Construct the string for the MODIS filenames
     for TILE in ${TILES[@]}; do
         STRING="${MODIS_PRODUCT}*"
         STRING+="${YEAR}"
         STRING+="*${TILE}*"
         echo $STRING
+        # Construct the path to the tile directory
         find raw -maxdepth 1 -name $STRING | while read -r FILE ; do
             echo ${FILE:4:100}
             OUTPATH="$RAWDIRECTORY"
@@ -74,6 +76,8 @@ for YEAR in {2023..2024}; do
             fi
             #OUTPATH+="${FILE:4:100}"
             #echo $OUTPATH
+
+            # Move MODIS files into their respective tile information
             mv $FILE $OUTPATH 
         done
     done
@@ -81,13 +85,17 @@ for YEAR in {2023..2024}; do
     echo "Moving aggregated files"
     
     for n in "${!VARIABLES[@]}"; do
+        # Construct the strong for aggregated filenames
         STRING="${VARIABLES[n]}*"
         STRING+="${YEAR}*.nc"
         find . -maxdepth 1 -name "$STRING" | while read -r FILE ; do
             echo ${FILE:2:100}
+            # Construct the path to the directory for the aggregated data files
             OUTPATH="${GLOBALDIRECTORY[n]}"
             OUTPATH+="${YEAR}/"
             #OUTPATH+="${FILE:2:100}"
+
+            # Move the data files to their directory
             mv $FILE $OUTPATH
         done
     done

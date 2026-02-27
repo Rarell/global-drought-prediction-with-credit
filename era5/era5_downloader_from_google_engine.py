@@ -1,5 +1,6 @@
 """
-Script to download raw ERA5 data from the Google Earth engine and reduce it to a more managable daily timescale (1 year of data at the daily times scale is ~ 3 GB per variable)
+Script to download raw ERA5 data from the Google Earth engine and reduce it to a more managable daily timescale 
+(1 year of data at the daily times scale is ~ 3 GB per variable)
 
 Acceptable names for --variable and --var_sname_era (i.e., variable names in the downloaded ERA5 dataset):
     --variable:
@@ -18,9 +19,11 @@ Acceptable names for --variable and --var_sname_era (i.e., variable names in the
     - Soil Moisture (28 - 100 cm): volumetric_soil_water_layer_3
     - Soil Moisture (100 - 289 cm): volumetric_soil_water_layer_4
     - Type of High Vegetation: type_of_high_vegetation
-      (3 = Evergreen needleleaf trees, 4 = Deciduous needleleaf trees, 5 = Deciduous broadleaf trees, 6 = Evergreen broadleaf trees, 18 = Mixed forest/woodland, 19 = Interrupted forest)
+      (3 = Evergreen needleleaf trees, 4 = Deciduous needleleaf trees, 5 = Deciduous broadleaf trees, 
+       6 = Evergreen broadleaf trees, 18 = Mixed forest/woodland, 19 = Interrupted forest)
     - Type of Low Vegetation: type_of_low_vegetation
-      (1 = Crops/Mixed farming, 2 = grass, 7 = Tall grass, 9 = Tundra, 10 = Irrigated crops, 11 = Semidesert, 13 = Bogs and marshes, 16 = Evergreen shrubs, 17 = Deciduous shrubs, 20 = water and land mixtures)
+      (1 = Crops/Mixed farming, 2 = grass, 7 = Tall grass, 9 = Tundra, 10 = Irrigated crops, 
+       11 = Semidesert, 13 = Bogs and marshes, 16 = Evergreen shrubs, 17 = Deciduous shrubs, 20 = water and land mixtures)
     - Percent Coverage of High Vegetation: high_vegetation_cover 
     - Percent Coverage of Low Vegetation: low_vegetation_cover
     - Total Column Rain Water: total_column_rain_water
@@ -89,18 +92,16 @@ import numpy as np
 import argparse
 import requests
 import time
+from typing import Dict
 from tqdm import tqdm
 from netCDF4 import Dataset
 from datetime import datetime, timedelta
 
-# Function to create a parser using the terminal
+
 def create_parser():
     '''
     Create argument parser
-    '''
-    
-    # To add: args.time_series, args.climatology_plot, args.case_studies, args.case_study_years
-              
+    '''              
     
     # Parse the command-line arguments
     parser = argparse.ArgumentParser(description='ERA Downloader', fromfile_prefix_chars='@')
@@ -115,37 +116,40 @@ def create_parser():
     
     return parser
 
-# Create a function to generate a range of datetimes
-def date_range(StartDate, EndDate):
+def date_range(start_date, end_date):
     '''
     This function takes in two dates and outputs all the dates inbetween
     those two dates.
     
     Inputs:
-    :param StartDate: A datetime. The starting date of the interval.
-    :param EndDate: A datetime. The ending date of the interval.
+    :param start_date: Starting date of the interval (must be a datetime).
+    :param end_date: Ending date of the interval (must be a datetime).
         
     Outputs:
     - A generator of all dates between StartDate and EndDate (inclusive)
     '''
-    for n in range(int((EndDate - StartDate).days) + 1):
-        yield StartDate + timedelta(n) 
+    for n in range(int((end_date - start_date).days) + 1):
+        yield start_date + timedelta(n) 
     
-# Create a function to load .nc files
-def load_nc(variable, filename, path = './'):
+def load_nc(
+        variable, 
+        filename, 
+        path = './'
+        ) -> Dict[str, np.ndarray]:
     '''
     Load a .nc file.
     
     Inputs:
-    :param variables: List of short names of the variables being loaded. I.e., the name used
-                  to call the variable in the .nc file.
-    :param filename: The name of the .nc file.
-    :param path: The path from the current directory to the directory the .nc file is in.
+    :param variable: Short name of the variables being loaded. I.e., the name used
+                     to call the variable in the .nc file.
+    :param filename: Filename of the .nc file.
+    :param path: Directory path to the directory with the .nc file is in.
     
     Outputs:
     :param X: A dictionary containing the data loaded from the .nc file. The 
-              entry 'lat' contains latitude (space dimensions), 'lon' contains longitude
-              (space dimensions), and 'variable' contains a variable (lat x lon).
+              entry 'lat' contains latitude (np.ndarray with shape lat x lon), 
+              'lon' contains longitude (np.ndarray with shape lat x lon), and 
+              'variable' contains the variable data (np.ndarray with shape time x lat x lon).
     '''
     
     # Initialize the directory to contain the data
@@ -172,25 +176,29 @@ def load_nc(variable, filename, path = './'):
         
     return X
 
-# Function to write netcdf files  
-def write_nc(var, lat, lon, dates, filename = 'tmp.nc', var_sname = 'tmp', description = 'Description', path = './'):
+def write_nc(
+        var, 
+        lat, 
+        lon, 
+        dates, 
+        filename: str = 'tmp.nc', 
+        var_sname: str = 'tmp', 
+        description: str = 'Description', 
+        path: str = './'
+        ) -> None:
     '''
-    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file.
+    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file
     
     Inputs:
-    :param var: The variable being written (time x lat x lon format).
-    :param lat: The latitude data with the same spatial grid as var.
-    :param lon: The longitude data with the same spatial grid as var.
-    :param dates: The timestamp for each pentad in var in a %Y-%m-%d format, same time grid as var.
-    :param filename: The filename of the .nc file being written.
-    :param sm: A boolean value to determine if soil moisture is being written. If true, an additional variable containing
-               the soil depth information is provided.
-    :param VarName: The full name of the variable being written (for the nc description).
-    :param VarSName: The short name of the variable being written. I.e., the name used
-                     to call the variable in the .nc file.
-    :param description: A string descriping the data.
-    :param path: The path to the directory the data will be written in.
-
+    :param var: The variable being written (np.ndarray with shape time x lat x lon)
+    :param lat: The latitude data (np.ndarray with shape lat)
+    :param lon: The longitude data (np.ndarray with shape lon)
+    :param dates: Timestamp for each day in var in a %Y-%m-%d format (np.ndarray with shape time)
+    :param filename: Filename of the .nc file being written
+    :param var_sname: The short name of the variable being written. I.e., the name used
+                      to call the variable in the .nc file
+    :param description: A string descriping the data
+    :param path: Directory path to the directory the data will be written in
     '''
     
     # Determine the spatial and temporal lengths
@@ -204,7 +212,6 @@ def write_nc(var, lat, lon, dates, filename = 'tmp.nc', var_sname = 'tmp', descr
         # Write a description for the .nc file
         nc.description = description
 
-        
         # Create the spatial and temporal dimensions
         nc.createDimension('x', size = I)
         nc.createDimension('y', size = J)
@@ -247,6 +254,8 @@ if __name__ == '__main__':
     
     # Create a list of timestamps
     ### Note the +2000 is so the start and end times works with SLURM task IDs, otherwise normal year values can be used
+    # start_time = datetime(args.years[0]+1950, 1, 1)
+    # end_time   = datetime(args.years[1]+1950, 12, 31)
     start_time = datetime(args.years[0]+2000, 1, 1)
     end_time   = datetime(args.years[1]+2000, 12, 31)
     timestamps = date_range(start_time, end_time)
@@ -263,6 +272,7 @@ if __name__ == '__main__':
     for v, variable in enumerate(args.variables):
         t = 0
         n = 0
+        # Construct the .nc filename
         if args.era5_dataset == 'date-variable-single_level':
             filename = '%s_%d.nc'%(variable, timestamps[n].year)
         elif args.era5_dataset == 'date-variable-pressure_level':
@@ -270,7 +280,7 @@ if __name__ == '__main__':
             
         # If the processed file already exists, skip this step
         if os.path.exists('./%s'%(filename)):
-            # Processed file does exist: exit
+            # Processed file does exist: go to next iteration
             print("%s has already been downloaded and processed."%filename)
             continue
             
@@ -312,7 +322,8 @@ if __name__ == '__main__':
             # Load in the data
             try:
                 data = load_nc(sname, fn, path = './')
-            except OSError: # Most likely error when loading the data was a bad download (file is truncated/became corrupted; only a few KB are downloaded in this case)
+            except OSError: # Most likely error when loading the data was a bad download 
+                            # (file is truncated/became corrupted; only a few KB are downloaded in this case)
                 if (os.path.getsize('./%s'%(fn)) < 1e5): # Check if the file is below 0.1 MB
                     print('Bad download occurred - removing it and trying again')
                     
@@ -321,14 +332,18 @@ if __name__ == '__main__':
                 else:
                     raise Exception('OSError: A download error occurred, please remove %s and try downloading again'%fn)
         
-            # Process the data?
+            # Process the data if required
             if args.process:
                  # Average down to the daily time scale
-                 if (variable == 'total_precipitation') | (variable == 'total_column_rain_water') | (variable == 'total_column_snow_water') | (variable == 'evaporation') | (variable == 'potential_evaporation') | (variable == 'surface_net_solar_radiation'):
+                 if ((variable == 'total_precipitation') | 
+                     (variable == 'total_column_rain_water') | 
+                     (variable == 'total_column_snow_water') | 
+                     (variable == 'evaporation') | 
+                     (variable == 'potential_evaporation') | 
+                     (variable == 'surface_net_solar_radiation')):
                      data_year[variable].append(np.nansum(data[sname], axis = 0)) # These variables are accumulation/sums
                  else:
                     data_year[variable].append(np.nanmean(data[sname], axis = 0))
-    
     
                  # Write data for one year
                  try:
@@ -348,15 +363,20 @@ if __name__ == '__main__':
                     #     print('Making evaporation/potential evaporation positive...')
                     #     data_year[variable] = -1 * data_year[variable]
                 
-                    # Shrink the datasize to be more manageable
+                    # Compress the datasize to be more manageable
                     data_year[variable] = data_year[variable].astype(np.float32)
                     
-                    # Finish preparing the file description and filename
+                    # Make the file description
                     desc = desc_base + data['desc']
                 
                     # Write the data
-                    write_nc(data_year[variable], data['lat'], data['lon'], timestamps[t:n+1], 
-                             filename = filename, var_sname = sname, description = desc)
+                    write_nc(data_year[variable], 
+                             data['lat'], 
+                             data['lon'], 
+                             timestamps[t:n+1], 
+                             filename = filename, 
+                             var_sname = sname, 
+                             description = desc)
                          
                     # Re-initialize the year of data
                     t = n + 1

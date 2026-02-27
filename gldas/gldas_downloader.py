@@ -1,9 +1,13 @@
 """
-Script to download GLDAS data from Earth Data HTTPs and reduce it to a more managable daily timescale (1 year of data at the daily times scale is ~ 1.26 GB per variable)
+Script to download GLDAS data from Earth Data HTTPs and reduce it to 
+a more managable daily timescale (1 year of data at the daily time 
+scale is ~ 1.26 GB per variable)
 
-NOTE: Earth Data requires authentication to access data. Earth Data login credentials in the .netrc file MUST be up to date for the script to run
+NOTE: Earth Data requires authentication to access data. Earth Data 
+login credentials in the .netrc file MUST be up to date for the script to run
 
-Acceptable names for --variables and --var_snames_gldas (i.e., variable names in the downloaded GLDAS dataset):
+Acceptable names for --variables and --var_snames_gldas 
+(i.e., variable names in the downloaded GLDAS dataset):
     --variables:
     - Temperature: temperature
     - Precipitation: precipitation
@@ -46,6 +50,7 @@ import numpy as np
 import argparse
 import requests
 import time
+from typing import Dict
 from tqdm import tqdm
 from netCDF4 import Dataset
 from datetime import datetime, timedelta
@@ -67,31 +72,35 @@ def create_parser():
     return parser
     
 # Create a function to generate a range of datetimes
-def date_range(StartDate, EndDate):
+def date_range(start_date, end_date):
     '''
     This function takes in two dates and outputs all the dates inbetween
-    those two dates.
+    those two dates
     
     Inputs:
-    :param StartDate: A datetime. The starting date of the interval.
-    :param EndDate: A datetime. The ending date of the interval.
+    :param StartDate: Starting date of the interval (must be a datetime)
+    :param EndDate: Ending date of the interval (must be a datetime)
         
     Outputs:
-    - A generator of all dates between StartDate and EndDate (inclusive)
+    - A generator of all dates between start_date and end_date (inclusive)
     '''
-    for n in range(int((EndDate - StartDate).days) + 1):
-        yield StartDate + timedelta(n) 
+    for n in range(int((end_date - start_date).days) + 1):
+        yield start_date + timedelta(n) 
     
 # Create a function to load .nc files
-def load_nc(variables, filename, path = './'):
+def load_nc(
+        variables, 
+        filename, 
+        path = './'
+        ) -> Dict[str, np.ndarray]:
     '''
-    Load a .nc file.
+    Load a .nc file
     
     Inputs:
-    :param variables: List of short names of the variables being loaded. I.e., the name used
-                  to call the variable in the .nc file.
-    :param filename: The name of the .nc file.
-    :param path: The path from the current directory to the directory the .nc file is in.
+    :param variables: Short name of the variables being loaded. I.e., the name used
+                      to call the variable in the .nc file
+    :param filename: Name of the .nc file
+    :param path: Path to the directory the .nc file is in
     
     Outputs:
     :param X: A dictionary containing the data loaded from the .nc file. The 
@@ -120,25 +129,31 @@ def load_nc(variables, filename, path = './'):
 
 
 # Function to write netcdf files  
-def write_nc(data, lat, lon, dates, mask = None, filename = 'tmp.nc', var_sname = 'tmp', description = 'Description', path = './'):
+def write_nc(
+        data, 
+        lat, 
+        lon, 
+        dates, 
+        mask = None, 
+        filename = 'tmp.nc', 
+        var_sname = 'tmp', 
+        description = 'Description', 
+        path = './'
+        ) -> None:
     '''
-    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file.
+    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file
     
     Inputs:
-    :param data: The variable being written (time x lat x lon format).
-    :param lat: The latitude data with the same spatial grid as var.
-    :param lon: The longitude data with the same spatial grid as var.
-    :param dates: The timestamp for each pentad in data in a %Y-%m-%d format, same time grid as data.
-    :param mask: Land-sea mask to be added to the dataset.
-    :param filename: The filename of the .nc file being written.
-    :param sm: A boolean value to determine if soil moisture is being written. If true, an additional variable containing
-               the soil depth information is provided.
-    :param VarName: The full name of the variable being written (for the nc description).
-    :param VarSName: The short name of the variable being written. I.e., the name used
-                     to call the variable in the .nc file.
-    :param description: A string descriping the data.
-    :param path: The path to the directory the data will be written in.
-
+    :param data: The variable being written (np.ndarray with shape time x lat x lon)
+    :param lat: Latitude labels (np.ndarray with shape lat)
+    :param lon: Longitude labels (np.ndarray with shape lon)
+    :param dates: Timestamps for each day in data in a %Y-%m-%d format (np.ndarray with shape time)
+    :param mask: Land-sea mask to be added to the dataset (np.ndarray with shape lat x lon)
+    :param filename: The filename of the .nc file being written
+    :param var_sname: The short name of the variable being written. I.e., the name used
+                      to call the variable in the .nc file.
+    :param description: A description string for the data
+    :param path: The path to the directory the data will be written in
     '''
     
     # Determine the spatial and temporal lengths
@@ -171,6 +186,7 @@ def write_nc(data, lat, lon, dates, mask = None, filename = 'tmp.nc', var_sname 
         nc.createVariable(var_sname, data.dtype, ('time', 'lat', 'lon'))
         nc.variables[str(var_sname)][:,:,:] = data[:,:,:]
         
+        # Create the mask if needed
         if np.invert(mask is None):
              nc.createVariable('landmask', mask.dtype, ('lat', 'lon'))
              nc.variables['landmask'][:,:] = mask[:,:]
@@ -229,7 +245,7 @@ if __name__ == '__main__':
             fn = fn_base%(timestamps[n].year, timestamps[n].month, timestamps[n].day, hour)
             
             if os.path.exists('./raw/%04d/%s'%(timestamps[n].year, fn)):
-                # Processed file does exist: exit
+                # Processed file exists: exit
                 print("%s is already downloaded."%fn)
             else:
                 # Download the data
@@ -243,7 +259,8 @@ if __name__ == '__main__':
             # Load in the data
             try:
                 data = load_nc(args.var_snames_gldas, fn, path = './raw/%04d/'%timestamps[n].year)
-            except OSError: # Most likely error when loading the data was a bad download (file is truncated/became corrupted; only a few KB are downloaded in this case)
+            except OSError: # Most likely error when loading the data was a bad download 
+                            # (file is truncated/became corrupted; only a few KB are downloaded in this case)
                 if (os.path.getsize('./raw/%04d/%s'%(timestamps[n].year, fn)) < 1e7): # Check if the file is below 10 MB
                     print('Bad download occurred - removing it and trying again')
                     
@@ -252,6 +269,7 @@ if __name__ == '__main__':
                 else:
                     raise Exception('OSError: A download error occurred, please remove %s and try downloading again'%fn)
         
+            # Append for all variables
             for sname in args.var_snames_gldas:
                 data_day[sname].append(data[sname])
     
@@ -264,14 +282,16 @@ if __name__ == '__main__':
     
             data_year[variable].append(data_day[sname])
     
-        # Write data for one year
+        # Determine if the end of the year is reached
         try:
             end_of_year = np.invert(timestamps[n].year == timestamps[n+1].year)
         # One way to deal with the end of the dataset
         except IndexError:
             end_of_year = (timestamps[n] == timestamps[-1])
         
+        # For end of the year, write the .nc file
         if end_of_year:
+            # Make the file description
             desc_base = 'Daily average %s (%s) data for the Global Land Data Assimilation Dataset (GLDAS) Version 2 dataset for %d.'
             desc_end  = 'Timestamps are string and data is time x lat x lon format. \n' +\
                         'source: Noah_v3.6 forced with GDAS-AGRMET-GPCPv13rA1 \n' +\
@@ -287,6 +307,8 @@ if __name__ == '__main__':
                         'DX: 0.25 \n' +\
                         'DY: 0.25 \n' +\
                         'CDO: Climate Data Operators version 1.9.8 (https://mpimet.mpg.de/cdo) \n'
+            
+            # Prepare each variable
             for variable in args.variables:
                 data_year[variable] = np.array(data_year[variable])
                 

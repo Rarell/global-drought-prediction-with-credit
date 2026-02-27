@@ -1,4 +1,4 @@
-''' Fix variables names (not sure how they happened)
+''' Fix variable short names in .nc files
 
 --var_sname_era:
     - Temperature: t2m
@@ -22,16 +22,33 @@
 import os, warnings
 import re
 import numpy as np
+from typing import Dict
 from netCDF4 import Dataset
 from datetime import datetime, timedelta
 
-def load_nc(filename, var):
+def load_nc(
+        filename, 
+        var
+        ) -> Dict[str, np.ndarray]:
     '''
     Load a nc file
+
+    Inputs:
+    :param filename: Path + filename of the nc file
+    :param var: Short name of the variables being loaded. I.e., the name used
+                to call the variable in the .nc file.
+    
+    Outputs:
+    :param X: A dictionary containing the data loaded from the .nc file. The 
+              entry 'lat' contains latitude (np.ndarray with shape lat x lon), 
+              'lon' contains longitude (np.ndarray with shape lat x lon), and 
+              'variable' contains the variable data (np.ndarray with shape time x lat x lon).
     '''
 
+    # Initialize the dictionary
     x = {}
 
+    # Load the data
     with Dataset(filename, 'r') as nc:
         x['lat'] = nc.variables['lat'][:,:]
         x['lon'] = nc.variables['lon'][:,:]
@@ -44,24 +61,29 @@ def load_nc(filename, var):
     return x
 
 
-def write_nc(var, lat, lon, dates, filename = 'tmp.nc', var_sname = 'tmp', description = 'Description', path = './'):
+def write_nc(
+        var, 
+        lat, 
+        lon, 
+        dates, 
+        filename = 'tmp.nc', 
+        var_sname = 'tmp', 
+        description = 'Description', 
+        path = './'
+        ) -> None:
     '''
-    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file.
+    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file
     
     Inputs:
-    :param var: The variable being written (time x lat x lon format).
-    :param lat: The latitude data with the same spatial grid as var.
-    :param lon: The longitude data with the same spatial grid as var.
-    :param dates: The timestamp for each pentad in var in a %Y-%m-%d format, same time grid as var.
-    :param filename: The filename of the .nc file being written.
-    :param sm: A boolean value to determine if soil moisture is being written. If true, an additional variable containing
-               the soil depth information is provided.
-    :param VarName: The full name of the variable being written (for the nc description).
-    :param VarSName: The short name of the variable being written. I.e., the name used
-                     to call the variable in the .nc file.
-    :param description: A string descriping the data.
-    :param path: The path to the directory the data will be written in.
-
+    :param var: The variable being written (np.ndarray with shape time x lat x lon)
+    :param lat: The latitude data (np.ndarray with shape lat)
+    :param lon: The longitude data (np.ndarray with shape lon)
+    :param dates: Timestamp for each day in var in a %Y-%m-%d format (np.ndarray with shape time)
+    :param filename: Filename of the .nc file being written
+    :param var_sname: The short name of the variable being written. I.e., the name used
+                      to call the variable in the .nc file
+    :param description: A string descriping the data
+    :param path: Directory path to the directory the data will be written in
     '''
     
     # Determine the spatial and temporal lengths
@@ -72,7 +94,6 @@ def write_nc(var, lat, lon, dates, filename = 'tmp.nc', var_sname = 'tmp', descr
         # Write a description for the .nc file
         nc.description = description
 
-        
         # Create the spatial and temporal dimensions
         nc.createDimension('x', size = I)
         nc.createDimension('y', size = J)
@@ -108,6 +129,15 @@ if __name__ == '__main__':
     # Iterate through each file
     for file in files:
         print(file)
+
+        # Load the data
         data = load_nc(file, true_sname)
-        write_nc(data[true_sname], data['lat'], data['lon'], data['time'], 
-                 filename = file, var_sname = true_sname, description = data['description'])
+
+        # Write the file again, with the correct name
+        write_nc(data[true_sname], 
+                 data['lat'], 
+                 data['lon'], 
+                 data['time'], 
+                 filename = file, 
+                 var_sname = true_sname, 
+                 description = data['description'])

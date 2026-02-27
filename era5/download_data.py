@@ -1,5 +1,6 @@
 """
-Script to download ERA5 data and reduce it to a more managable daily timescale (1 year of data at the daily times scale is ~ 3 GB per variable)
+Script to download ERA5 data from the Copernicus storage and reduce it to a more managable daily timescale 
+(1 year of data at the daily times scale is ~ 3 GB per variable)
 
 NOTE: Though the script is set up to download multiple variables at a time, in practice 2 variables
 violates some of the constraints in the grib_to_cdf code in cdsapi, and makes the dataset too large
@@ -22,9 +23,13 @@ Acceptable names for --variable and --var_sname_era (i.e., variable names in the
     - Soil Moisture (28 - 100 cm): volumetric_soil_water_layer_3
     - Soil Moisture (100 - 289 cm): volumetric_soil_water_layer_4
     - Type of High Vegetation: type_of_high_vegetation
-      (3 = Evergreen needleleaf trees, 4 = Deciduous needleleaf trees, 5 = Deciduous broadleaf trees, 6 = Evergreen broadleaf trees, 18 = Mixed forest/woodland, 19 = Interrupted forest)
+      (3 = Evergreen needleleaf trees, 4 = Deciduous needleleaf trees, 
+       5 = Deciduous broadleaf trees, 6 = Evergreen broadleaf trees, 
+       18 = Mixed forest/woodland, 19 = Interrupted forest)
     - Type of Low Vegetation: type_of_low_vegetation
-      (1 = Crops/Mixed farming, 2 = grass, 7 = Tall grass, 9 = Tundra, 10 = Irrigated crops, 11 = Semidesert, 13 = Bogs and marshes, 16 = Evergreen shrubs, 17 = Deciduous shrubs, 20 = water and land mixtures)
+      (1 = Crops/Mixed farming, 2 = grass, 7 = Tall grass, 9 = Tundra, 
+       10 = Irrigated crops, 11 = Semidesert, 13 = Bogs and marshes, 
+       16 = Evergreen shrubs, 17 = Deciduous shrubs, 20 = water and land mixtures)
     - Percent Coverage of High Vegetation: high_vegetation_cover 
     - Percent Coverage of Low Vegetation: low_vegetation_cover
       
@@ -81,7 +86,7 @@ from datetime import datetime, timedelta
 
 from era5_downloader import downloader
 
-# Function to create a parser using the terminal
+
 def create_parser():
     '''
     Create argument parser
@@ -105,25 +110,29 @@ def create_parser():
     return parser
     
 
-# Function to write netcdf files  
-def write_nc(var, lat, lon, dates, filename = 'tmp.nc', var_sname = 'tmp', description = 'Description', path = './'):
+def write_nc(
+        var, 
+        lat, 
+        lon, 
+        dates, 
+        filename: str = 'tmp.nc', 
+        var_sname: str = 'tmp', 
+        description: str = 'Description', 
+        path: str = './'
+        ) -> None:
     '''
-    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file.
+    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file
     
     Inputs:
-    :param var: The variable being written (time x lat x lon format).
-    :param lat: The latitude data with the same spatial grid as var.
-    :param lon: The longitude data with the same spatial grid as var.
-    :param dates: The timestamp for each pentad in var in a %Y-%m-%d format, same time grid as var.
-    :param filename: The filename of the .nc file being written.
-    :param sm: A boolean value to determine if soil moisture is being written. If true, an additional variable containing
-               the soil depth information is provided.
-    :param VarName: The full name of the variable being written (for the nc description).
-    :param VarSName: The short name of the variable being written. I.e., the name used
-                     to call the variable in the .nc file.
-    :param description: A string descriping the data.
-    :param path: The path to the directory the data will be written in.
-
+    :param var: The variable being written (np.ndarray with shape time x lat x lon)
+    :param lat: The latitude data (np.ndarray with shape lat x lon)
+    :param lon: The longitude data (np.ndarray with shape lat x lon)
+    :param dates: Timestamp for each day in var in a %Y-%m-%d format (np.ndarray with shape time)
+    :param filename: Filename of the .nc file being written
+    :param var_sname: The short name of the variable being written. I.e., the name used
+                      to call the variable in the .nc file
+    :param description: A string descriping the data
+    :param path: Directory path to the directory the data will be written in
     '''
     
     # Determine the spatial and temporal lengths
@@ -166,50 +175,68 @@ if __name__ == '__main__':
     # Turn off warnings
     warnings.simplefilter('ignore')
     
-    # Do a test run?
+    # Do a test run if desired
     if args.test:
-        downloader(args.variable, 2021, dataset = args.era5_dataset, pressure = args.pressure_level)
+        downloader(args.variable, 
+                   2021, 
+                   dataset = args.era5_dataset, 
+                   pressure = args.pressure_level)
     else:
+        # Construct the years to download
+         ### Note the +2000 is so the start and end times works with SLURM task IDs, otherwise normal year values can be used
         years = np.arange(args.years[0]+2000, args.years[1]+2000+1)
         print(years)
+
+        # Perform a download for each year
         for year in years:
             print('Downloading data for %d...'%year)
 
+            # Construct the variable filename
             fn = '%s_%d.nc'%(args.variable[0], year) if args.era5_dataset == 'reanalysis-era5-single-levels' else '%s_%d_mb_%d.nc'%(args.variable[0], args.pressure_level, year)
+
+            # Skip to the next year if the file already exists
             if os.path.exists(fn):
                 print('Dataset has already been reduced to daily timescale.')
                 continue
 
+            # Construct filename of the unprocessed data
             if args.era5_dataset == 'reanalysis-era5-single-levels':
                 filename = 'era5_%s_%d.nc'%(args.variable[0], year)
                 start_year = 1970
             elif (args.era5_dataset == 'derived-era5-pressure-levels-daily-statistics') | (args.era5_dataset == 'reanalysis-era5-pressure-levels'):
-                filename = 'era5_%s_%d_%dmb.nc'%(args.variable[0], year, pressure)
+                filename = 'era5_%s_%d_%dmb.nc'%(args.variable[0], year, args.pressure_level)
                 start_year = 1980
                 
                 
             if os.path.exists(filename):
-            # Processed file does exist: exit
+                # Processed file does exist: load the data, rather than download
                 print("Data is already downloaded.")
             else:
-            	downloader(args.variable, year, dataset = args.era5_dataset, pressure = args.pressure_level)
+                # Download data from Copernicus
+                downloader(args.variable, year, dataset = args.era5_dataset, pressure = args.pressure_level)
+
             print('Data downloaded, processing to daily timescale')
-            # Process the data so it isn't so large?
+
+            # Process the data so it isn't so large
             if args.process:
                 for v, variable in enumerate(args.variable):
+                    # Construct the filename
                     fn = '%s_%d.nc'%(variable, year) if args.era5_dataset == 'reanalysis-era5-single-levels' else '%s_%d_mb_%d.nc'%(variable, args.pressure_level, year)
+
+                    # Skip if the file has already been processed
                     if os.path.exists(fn):
                         print('Dataset has already been reduced to daily timescale.')
                         continue
 
                     print('Reducing %s to daily scale for %d...'%(variable, year))
+
                     # First, load in the data
                     with Dataset(filename, 'r') as nc:
                         # Load in lat and lon
                         lat = nc.variables['latitude'][:]
                         lon = nc.variables['longitude'][:]
                     
-                        # Collect the time + dates
+                        # Collect the time + convert to datetimes
                         time = nc.variables['valid_time'][:]
                         dates = np.asarray([datetime(start_year,1,1) + timedelta(seconds = int(t)) for t in time])
                     
@@ -221,18 +248,29 @@ if __name__ == '__main__':
                         # Mesh the lat/lon grid
                         lon, lat = np.meshgrid(lon, lat)
                     
-                        # Rather than load in the entire (18 GB) dataset, load in a small portion and immediately reduce it to daily size to ease computation
+                        # Rather than load in the entire (18 GB) dataset, 
+                        # load in a small portion and immediately reduce it to daily size to ease computation
                         for t in range(int(T/24)):
                             print('On day %d'%t)
                             if args.era5_dataset == 'reanalysis-era5-single-levels':
-                                if (variable == 'total_precipitation') | (variable == 'total_column_rain_water') | (variable == 'total_column_snow_water'):
+                                if ((variable == 'total_precipitation') | 
+                                    (variable == 'total_column_rain_water') | 
+                                    (variable == 'total_column_snow_water')):
+                                    # Determine daily sum/accumulation for some variables
                                     var[t,:,:] = np.nansum(nc.variables[args.var_sname_era[v]][n:n+24,:,:], axis = 0)
+
                                 else:
+                                    # Compute the daily average
                                     var[t,:,:] = np.nanmean(nc.variables[args.var_sname_era[v]][n:n+24,:,:], axis = 0)
                             else:
-                                if (variable == 'total_precipitation') | (variable == 'total_column_rain_water') | (variable == 'total_column_snow_water'):
+                                if ((variable == 'total_precipitation') | 
+                                    (variable == 'total_column_rain_water') | 
+                                    (variable == 'total_column_snow_water')):
+                                    # Determine daily sum/accumulation for some variables
                                     var[t,:,:] = np.nansum(nc.variables[args.var_sname_era[v]][n:n+24,0,:,:], axis = 0)
+
                                 else:
+                                    # Determine daily sum/accumulation for some variables
                                     var[t,:,:] = np.nanmean(nc.variables[args.var_sname_era[v]][n:n+24,0,:,:], axis = 0)
                             n = n + 24
                 
@@ -261,7 +299,13 @@ if __name__ == '__main__':
                     # Write the reduced data as a netcdf file
                     description = "Daily ERA5 reanalysis data for %s"%variable
                     fn = '%s_%d.nc'%(variable, year) if args.era5_dataset == 'reanalysis-era5-single-levels' else '%s_%d_mb_%d.nc'%(variable, args.pressure_level, year)
-                    write_nc(var, lat, lon, dates[::24], filename = fn, var_sname = args.var_sname[v], description = description)
+                    write_nc(var, 
+                             lat, 
+                             lon, 
+                             dates[::24], 
+                             filename = fn, 
+                             var_sname = args.var_sname[v], 
+                             description = description)
                 
                 # Delete the extra large file
                 print('Removing large datafile...')

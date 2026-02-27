@@ -1,22 +1,27 @@
 import cdsapi
 
-def downloader(variable, year, dataset = 'reanalysis-era5-single-levels', pressure = 500):
+def downloader(
+        variable, 
+        year, 
+        dataset = 'reanalysis-era5-single-levels', 
+        pressure = 500
+        ):
     """
     API to download 1 year of hourly ERA5 data from cds.climate.copernicus.eu
+    Downloaded data is placed in the current directory
+
+    #### NOTE: Data files are LARGE and require significant memory and time to download
+               1 year of data ~17GB, and takes ~1 hour to download
     
     NOTE: If the daily statistics dataset is used, there is an assumption that the daily mean is desired
     
     Inputs:
-    :param variable: Str. Name of the variable to download
+    :param variable: Name of the variable to download
     :param year: Year of the data to be downloaded
-    :param dataset: Str. ERA5 dataset to collect data from. Default = 'reanalysis-era5-single-levels'
-    :param pressure: Pressure level of the data downloaded (only used when dataset = 'derived-era5-pressure-levels-daily-statistics'). Default = 'reanalysis-era5-single-levels'
-    
-    Outputs:
-    None. Data is downloaded into the current directory. 
-    #### NOTE the data files are LARGE and require significant memory and time to download
-         1 year of data ~17GB, and takes ~1 hour to download
+    :param dataset: ERA5 dataset to collect data from. Default = 'reanalysis-era5-single-levels'
+    :param pressure: Pressure level of the data downloaded (only used when dataset = 'derived-era5-pressure-levels-daily-statistics')
     """
+    
     # Create the request
     request = {'product_type': 'reanalysis',
                 'format': 'netcdf',

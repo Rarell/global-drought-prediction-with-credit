@@ -1,9 +1,12 @@
 '''
-Script to download MODIS data from Earth Data HTTPs, save it on a standard grid in a netcdf format (1 timestamp of data over the globe is ~ # GB per variable)
+Script to download MODIS data from Earth Data HTTPs,
+save it on a standard grid in a netcdf format 
+(1 timestamp of data over the globe is ~ # GB per variable)
 
-NOTE: Earth Data requires authentication to access data. Earth Data login credentials in the .netrc file MUST be up to date for the script to run
-NOTE: For MODIS data has been moved since Lines 439 - 450 were last run, and those lines need to be updated and and base_fname needs to be added to them before they will work
-NOTE: L559 may need to be fixed.
+NOTE: Earth Data requires authentication to access data. 
+      Earth Data login credentials in the .netrc file MUST be up to date for the script to run
+NOTE: For MODIS data has been moved since Lines 439 - 450 were last run, and those lines need 
+      to be updated and and base_fname needs to be added to them before they will work
 
 Acceptable names for --variables and --var_snames_gldas (i.e., variable names in the downloaded GLDAS dataset):
     --variables:
@@ -23,7 +26,8 @@ Acceptable names for --variables and --var_snames_gldas (i.e., variable names in
     - EVI: EVI
     - FPAR: Fpar_500m
     - LAI: Lai_500m
-    - Downward shortwave radiation: DSR # For DSR, this would be modified in the code to 'GMT_HHHH_%s'%args.variables format to collect DSR at all hours
+    - Downward shortwave radiation: DSR # For DSR, this would be modified in the code to 
+                                          'GMT_HHHH_%s'%args.variables format to collect DSR at all hours
     - Land cover: Majority_Land_Cover_Type_1
     
 Variable units in MODIS dataset:
@@ -52,6 +56,7 @@ import re
 import gc
 import pyproj
 import xarray
+from typing import Tuple
 from pyhdf.SD import SD, SDC
 from lxml import etree
 from io import StringIO
@@ -117,26 +122,35 @@ def create_parser():
     
     return parser
     
-def load_global_grid(filename, var, resolution = 0.05, path = './'):
+def load_global_grid(
+        filename, 
+        var, 
+        resolution = 0.05, 
+        path = './'
+        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, str, str]:
     '''
-    Load a .hdf file in which the data is over the full globe.
+    Load a global .hdf file in which the data is over the full globe.
     Also load some of the metadata for the file.
     
-    Code is heavily based off of the work done by Dr. John Evans in https://hdfeos.org/zoo/MORE/LPDAAC/MCD/MCD19A2.A2010010.h25v06.006.2018047103710.hdf.py
+    Code is heavily based off of the work done by Dr. John Evans 
+    in https://hdfeos.org/zoo/MORE/LPDAAC/MCD/MCD19A2.A2010010.h25v06.006.2018047103710.hdf.py
     
     Inputs:
-    :param filename: (str) The filename of the hdf file to be loaded
-    :param var: (str) The name of the data (in the hdf file) being loaded from the hdf file
-                E.g., in the MODIS dataset, IGBP land cover is labeled as Majority_Land_Cover_Type_1, so var = 'Majority_Land_Cover_Type_1' in that file
-    :param resolution: (float) Spatial resolution of the global grid (e.g., if the grid has 0.05 degree x 0.05 degree, then resolution = 0.05)
-    :param path: (str) File path from the current directory to the directory with the hdf file
+    :param filename: Filename of the hdf file to be loaded
+    :param var: Name of the data (in the hdf file) being loaded from the hdf file
+                E.g., in the MODIS dataset, IGBP land cover is labeled as Majority_Land_Cover_Type_1, 
+                so var = 'Majority_Land_Cover_Type_1' in that file
+    :param resolution: Spatial resolution of the global grid 
+                       (e.g., if the grid has 0.05 degree x 0.05 degree, then resolution = 0.05)
+    :param path: Directory path to the directory with the hdf file
     
     Outputs:
-    :param data: (float32 array) The hdf data in a numpy array, which attributes (scale factor, offset) applied and fill values converted to NaNs
-    :param lat: (float32 array)The latitudes coordinates for each gridded entry in data
-    :param lon: (float 32 array) The longitude coordinates for each gridded entry in data
-    :param long_name: (str) The long name of the variable that data represents
-    :param units: (str) The units that data is in
+    :param data: hdf data in a numpy array, with attributes (scale factor, offset) 
+                 applied and fill values converted to NaNs (np.ndarray with shape lat x lon)
+    :param lat: Latitudes coordinates for each gridded entry in data (np.ndarray with shape lat x lon)
+    :param lon: Longitude coordinates for each gridded entry in data (np.ndarray with shape lat x lon)
+    :param long_name: Long name of the variable that data represents
+    :param units: Units of data
     '''
     
     # Load the data
@@ -175,26 +189,35 @@ def load_global_grid(filename, var, resolution = 0.05, path = './'):
     
     return data, lat, lon, long_name, units
     
-def tile_to_grid(filename, var, path = './'):
+def tile_to_grid(
+        filename, 
+        var,
+        path = './'
+        ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, str, str]:
     '''
-    Load a .hdf file in a sinusoidal grid and convert it onto a standard grid in which x and y represent lon and lat respectively.
+    Load a .hdf file in a sinusoidal grid and convert it onto a 
+    standard grid in which x and y represent lon and lat respectively.
+
     Primary purpose of the function: convert MODIS data from the tile schema onto a standard grid.
-    Also load some of the metadata for the file.
+    Also loads some of the metadata for the file.
     
-    Code is heavily based off of the work done by Dr. John Evans in https://hdfeos.org/zoo/MORE/LPDAAC/MCD/MCD19A2.A2010010.h25v06.006.2018047103710.hdf.py
+    Code is heavily based off of the work done by Dr. John Evans 
+    in https://hdfeos.org/zoo/MORE/LPDAAC/MCD/MCD19A2.A2010010.h25v06.006.2018047103710.hdf.py
     
     Inputs:
-    :param filename: (str) The filename of the hdf file to be loaded
-    :param var: (str) The name of the data (in the hdf file) being loaded from the hdf file
-                E.g., in the MODIS dataset, 500m resolution ET is labeled as ET_500m, so var = 'ET_500m' in that file
-    :param path: (str) File path from the current directory to the directory with the hdf file
+    :param filename: Filename of the hdf file to be loaded
+    :param var: Name of the variable (in the hdf file) being loaded
+                E.g., in the MODIS dataset, 500m resolution ET is 
+                labeled as ET_500m, so var = 'ET_500m' in that file
+    :param path: Directory path to the directory with the hdf file
     
     Outputs:
-    :param data: (float32 array) The hdf data in a numpy array, which attributes (scale factor, offset) applied and fill values converted to NaNs
-    :param lat: (float32 array)The latitudes coordinates for each gridded entry in data
-    :param lon: (float 32 array) The longitude coordinates for each gridded entry in data
-    :param long_name: (str) The long name of the variable that data represents
-    :param units: (str) The units that data is in
+    :param data: hdf data in a numpy array, with attributes (scale factor, offset) 
+                 applied and fill values converted to NaNs (np.ndarray with shape lat x lon)
+    :param lat: Latitudes coordinates for each gridded entry in data (np.ndarray with shape lat x lon)
+    :param lon: Longitude coordinates for each gridded entry in data (np.ndarray with shpe lat x lon)
+    :param long_name: Long name of the variable that data represents
+    :param units: Units of data
     '''
     
     # Load the data
@@ -261,8 +284,11 @@ def tile_to_grid(filename, var, path = './'):
     sinu = pyproj.Proj("+proj=sinu +R=6371007.181 +nadgrids=@null +wktext")
     wgs84 = pyproj.Proj("EPSG:4326")
     
-    # Convert the coordinates from sinusoidal to standard coordinates (where x and y now represent lon and lat respectively)
-    ### NOTE: This method of grid transformation is out of date (delivers warnings from pyproj) and may be truncated/need to be changed in future
+    # Convert the coordinates from sinusoidal to standard coordinates 
+    # (where x and y now represent lon and lat respectively)
+
+    ### NOTE: This method of grid transformation is out of date (delivers warnings from pyproj) 
+    #         and may be truncated/need to be changed in future
     ### Newer method might be sinu_to_wgs = pyproj.Transformer.from_proj(old_proj, new_proj) -> sinu_to_wgs.transform(xv, yv)
     lat, lon= pyproj.transform(sinu, wgs84, xv, yv)
     
@@ -277,42 +303,45 @@ def tile_to_grid(filename, var, path = './'):
     
     return data, lat, lon, long_name, units
     
-# Create a function to generate a range of datetimes
-def date_range(StartDate, EndDate):
+def date_range(start_date, end_date):
     '''
     This function takes in two dates and outputs all the dates inbetween
     those two dates.
     
     Inputs:
-    :param StartDate: A datetime. The starting date of the interval.
-    :param EndDate: A datetime. The ending date of the interval.
+    :param start_Date: Starting date of the interval (must be a datetime)
+    :param end_date: Ending date of the interval (must be a datetime)
         
     Outputs:
     - A generator of all dates between StartDate and EndDate (inclusive)
     '''
-    for n in range(int((EndDate - StartDate).days) + 1):
-        yield StartDate + timedelta(n)
-        
-# Function to write netcdf files  
-def write_nc(data, lat, lon, dates, mask = None, filename = 'tmp.nc', var_sname = 'tmp', description = 'Description', path = './'):
+    for n in range(int((end_date - start_date).days) + 1):
+        yield start_date + timedelta(n)
+         
+def write_nc(
+        data, 
+        lat, 
+        lon, 
+        dates, 
+        mask = None, 
+        filename = 'tmp.nc', 
+        var_sname = 'tmp', 
+        description = 'Description', 
+        path = './'
+        ) -> None:
     '''
     Write data, and additional information such as latitude and longitude and timestamps, to a .nc file.
     
     Inputs:
-    :param data: The variable being written (time x lat x lon format).
-    :param lat: The latitude data with the same spatial grid as var.
-    :param lon: The longitude data with the same spatial grid as var.
-    :param dates: The timestamp for data in a %Y-%m-%d format.
-    :param mask: Land-sea mask to be added to the dataset.
-    :param filename: The filename of the .nc file being written.
-    :param sm: A boolean value to determine if soil moisture is being written. If true, an additional variable containing
-               the soil depth information is provided.
-    :param VarName: The full name of the variable being written (for the nc description).
-    :param VarSName: The short name of the variable being written. I.e., the name used
-                     to call the variable in the .nc file.
-    :param description: A string descriping the data.
-    :param path: The path to the directory the data will be written in.
-
+    :param data: Variable being written (np.ndarray with shape time x lat x lon)
+    :param lat: Latitude labels (np.ndarray with shape lat x lon)
+    :param lon: Longitude labels (np.ndarray with shape lat x lon)
+    :param dates: Timestamps for data in a %Y-%m-%d format (np.ndarray with shape time)
+    :param mask: Land-sea mask to be added to the dataset
+    :param filename: Filename of the .nc file being written
+    :param var_sname: Short name of the variable being written (i.e., variable key in the .nc file)
+    :param description: A string describing the data
+    :param path: Directory path to the directory the data will be written in
     '''
     
     # Determine the spatial and temporal lengths
@@ -358,18 +387,22 @@ def write_nc(data, lat, lon, dates, mask = None, filename = 'tmp.nc', var_sname 
              nc.createVariable('landmask', mask.dtype, ('lat', 'lon'))
              nc.variables['landmask'][:,:] = mask[:,:]
 
-# Function to examine and test loaded datadata.
-
-def test_map(data, lat, lon, date, data_name):
+def test_map(
+        data, 
+        lat, 
+        lon, 
+        date, 
+        data_name
+        ) -> None:
     '''
     Create a simple plot of the data to examine and test it.
     
     Inputs:
-    :param data: Data to be plotted.
-    :param lat: Latitude grid of the data.
-    :param lon: Longitude grid of the data.
-    :param dates: Array of datetimes corresponding to the timestamps in data.
-    :param data_name: Full name of the variable being processed.
+    :param data: Data to be plotted (np.ndarray with shape lat x lon)
+    :param lat: Latitude grid of the data (np.ndarray with shape lat x lon)
+    :param lon: Longitude grid of the data (np.ndarray with shape lat x lon)
+    :param dates: Datetime corresponding to the present timestamp of data
+    :param data_name: Full name of the variable being plotted
     '''
     
     # Lonitude and latitude tick information
@@ -387,7 +420,7 @@ def test_map(data, lat, lon, date, data_name):
     # Colorbar information
     #### NOTE: Might need to adjust cmin, cmax, and cint for other variables
     if (np.ceil(np.nanmin(data[:,:])) == 1) & (np.floor(np.nanmax(data[:,:])) == 0): # Special case if the variable varies from 0 to 1
-        cmin = np.round(np.nanmin(data[rand_int,:,:]), 2); cmax = np.round(np.nanmax(data[:,:]), 2); cint = (cmax - cmin)/100
+        cmin = np.round(np.nanmin(data[:,:]), 2); cmax = np.round(np.nanmax(data[:,:]), 2); cint = (cmax - cmin)/100
     else:
         cmin = np.ceil(np.nanmin(data[:,:])); cmax = np.floor(np.nanmax(data[:,:])); cint = (cmax - cmin)/100
     
@@ -398,10 +431,11 @@ def test_map(data, lat, lon, date, data_name):
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.PlateCarree()
 
-    # Figure
+    # Create the figure
     fig = plt.figure(figsize = [12, 16])
     ax = fig.add_subplot(1, 1, 1, projection = fig_proj)
 
+    # Make the title
     ax.set_title('%s for %s'%(data_name, date.strftime('%Y-%m-%d')), fontsize = 16)    
 
     # Add coastlines
@@ -417,20 +451,28 @@ def test_map(data, lat, lon, date, data_name):
     ax.yaxis.tick_left()
 
     # Plot the data
-    cs = ax.contourf(lon, lat, data[:,:], levels = clevs, cmap = cmap, 
-                     transform = data_proj, extend = 'both', zorder = 1)
+    cs = ax.contourf(lon, 
+                     lat, 
+                     data[:,:], 
+                     levels = clevs, 
+                     cmap = cmap, 
+                     transform = data_proj, 
+                     extend = 'both', 
+                     zorder = 1)
 
     # Add a colorbar
     cbax = fig.add_axes([0.125, 0.30, 0.80, 0.02])
     cbar = fig.colorbar(cs, cax = cbax, orientation = 'horizontal')
 
+    # Set the extent of the map
     ax.set_extent([np.nanmin(lon), np.nanmax(lon), np.nanmin(lat), np.nanmax(lat)], 
                     crs = fig_proj)
     
+    # Save the figure
     plt.savefig('%s_%s_test_map.png'%(data_name, date.strftime('%Y-%m-%d')))
 
+    # Close the figure
     #plt.show(block = False)
-    
     plt.close('all')
 
 
@@ -446,7 +488,7 @@ if __name__ == '__main__':
     warnings.simplefilter('ignore')
 
     print('Initializing variables...')
-    # Determine portion of url based on variable (and shortname for extracting data?)
+    # Determine the base filename based on variable (and shortname for extracting data)
     if (args.variables[0] == 'evaporation') | (args.variables[0] == 'potential_evaporation'):
         url_modifier = 'MOD16A2GF.061'
         sname = 'evap' if args.variables[0] == 'evap' else 'pevap'
@@ -465,35 +507,47 @@ if __name__ == '__main__':
         sname = ['sur_refl_b01', 'sur_refl_b02', 'sur_relf_b03', 'sur_relf_b04', 
                  'sur_relf_b05', 'sur_relf_b06', 'sur_relf_b07']
 
+    # Determine the years to download and process data for
     years = np.arange(args.start_year+2000, args.end_year+1+2000)
     print('Starting data download...')
     for year in years: # Need to loop through each year as the timesteps reset to Jan. 1 at the start of each year
+        # Construct the timestamps for the MODIS files to download and process
         start_time = datetime(year, 1, 1)
         end_time   = datetime(year, 12, 31)
         timestamps = date_range(start_time, end_time)
     
         timestamps = np.array([timestamp for timestamp in timestamps])
         
+        # Download data for each timestamp
         for n, timestamp in enumerate(timestamps[::args.day_interval]):
             print('On day %s'%timestamp.strftime('%b %d, %Y'))
         
             # Make the base url to find the data
             # url_base = 'https://e4ftl01.cr.usgs.gov/MOLT/%s/%s/'%(url_modifier, timestamp.strftime('%Y.%m.%d'))
-            url_base = 'https://opendap.cr.usgs.gov/opendap/%s/%s/'%(url_modifier, timestamp.strftime('%Y.%m.%d')) # New url location for MODIS data
+            # New url location for MODIS data
+            url_base = 'https://opendap.cr.usgs.gov/opendap/%s/%s/'%(url_modifier, timestamp.strftime('%Y.%m.%d')) 
             print(url_base)
 
             # Collect all the files with the MODIS data
             ## Heavily based on the code developed by Dr. Maas in https://www.matecdev.com/posts/login-download-files-python.html
             session = requests.Session()
-            page = session.get(url_base) # Get and decode all files on the url page
+            page = session.get(url_base) # Get and decode all filenames on the url page
             html = page.content.decode('utf-8')
-            encoding_string = '<?xml version="1.0" encoding="UTF-8"?>' # Encoding string needs to be removed for lxml to work
+
+            # Encoding string needs to be removed for lxml to work
+            encoding_string = '<?xml version="1.0" encoding="UTF-8"?>' 
             html = html.replace(encoding_string, "")
+
+            # Parse filenames
             tree = etree.parse(StringIO(html), parser = etree.HTMLParser(encoding = 'utf-8'))
             html = html.replace(encoding_string, "")
-            refs = tree.xpath('//a') # Split the string into multiple strings, one for each file
+
+            # Split the string into multiple strings, one for each file (set each string as a list entry)
+            refs = tree.xpath('//a') 
             link_list = list(set([link.get('href', '') for link in refs]))
-            extension = '.hdf' # Filter out all files to only include .hdf files
+
+            # Filter out all files to only include .hdf files
+            extension = '.hdf' 
             filenames = [link for link in link_list if link.endswith(extension)]
             print(filenames[:10])
             ##
@@ -506,6 +560,8 @@ if __name__ == '__main__':
             # Initialize the grid
             I = lat.size
             J = lon.size
+
+            # For reflectance, multiple bands need to be initialized
             if args.variables[0] == 'reflectance':
                 data = {}
                 for sn in sname:
@@ -517,26 +573,30 @@ if __name__ == '__main__':
             lat_full = []
             lon_full = []
     
-            # Download the data
+            # Download the global data
             if len(filenames) < 2:
-                ind = filenames[0].find(base_fname) # New MODIS site attaches a lot of extra to the fname string, this gets rid of it
+                # New MODIS site attaches a lot of extra to the fname string, this gets rid of it
+                ind = filenames[0].find(base_fname) 
+
+                # Check if the file has already been downloaded (load it if so)
                 if os.path.exists('./raw/%s.dap.nc4'%filenames[0][ind:]):
                     # Processed file does exist: skip the download step
                     print("%s is already downloaded."%filenames[0])
                 else:
         
                     # If there is only 1 hdf file, the dataset has already been merged into a single, global set
+                    # Collect that global set
                     response = session.get('%s/%s.dap.nc4'%(url_base, filenames[0][ind:]))
                     open('%s/%s.dap.nc4'%('./raw', filenames[0][ind:]), 'wb').write(response.content)
         
                 # Load the data
-                data_modis, lat_modis, lon_modis, long_name, units = load_global_grid(filenames[0][ind:], args.var_snames_modis[0], resolution = resolution, path = './raw')
+                data_modis, lat_modis, lon_modis, long_name, units = load_global_grid(filenames[0][ind:], 
+                                                                                      args.var_snames_modis[0], 
+                                                                                      resolution = resolution, 
+                                                                                      path = './raw')
         
-                # Get the keys?
+                # Get the keys
                 #attributes = file.datasets()
-        
-                # Some special portion for shortwave radiation to sum to daily timescale?
-                # if args.timescale < 1:
         
                 # Place the data in the full set
                 data = data_modis
@@ -544,10 +604,13 @@ if __name__ == '__main__':
                 lon = lon_modis
     
             else:
-                # Multiple hdf files means that the satellite data will be loaded piecemeal 
-                # and need to merged into a single global array
+                # Multiple hdf files means that the satellite data will be loaded piece-meal 
+                # and need to be merged into a single global array
                 
+                # Determine the MODIS filename
                 filename = 'modis.%s.%d-day.%04d.%02d.%02d.nc'%(args.variables[0], args.day_interval, timestamp.year, timestamp.month, timestamp.day)
+
+                # Check if the file has already been downloaded (load it if so)
                 if os.path.exists('./%s'%filename):
                     # Processed file does exist: next iteration
                     print("Data for %s has already been downloaded and merged to a global scale."%timestamp.strftime('%b %d, %Y'))
@@ -555,20 +618,27 @@ if __name__ == '__main__':
     
                 filenames = np.sort(filenames)
                 print('%d files to collect'%len(filenames))
+                
+                # Download each tile separately
                 for filename in filenames:
-                    ind = ind = filename.find(base_fname) # New MODIS site attaches a lot of extra to the fname string, this gets rid of it
+                    # New MODIS site attaches a lot of extra to the fname string, this gets rid of it
+                    ind = ind = filename.find(base_fname) 
+
+                    # Check if the file has already been downloaded
                     if os.path.exists('./raw/%s.dap.nc4'%filename[ind:]):
                         # Processed file does exist: skip the download step
                         print("%s is already downloaded."%filename[ind:])
                     else:
+                        # Download and collect the data
                         response = session.get('%s/%s.dap.nc4'%(url_base, filename[ind:]))
                         open('%s/%s.dap.nc4'%('./raw', filename[ind:]), 'wb').write(response.content)
             
-                    # Get the keys?
+                    # Get the keys
                     #attributes = file.datasets()
             
                     # Select the data
                     if args.variables[0] == 'reflectance':
+                        # Reflectance data load is slightly different since there are multiple bands
                         data_modis = {}
                         with Dataset('%s/%s.dap.nc4'%('./raw', filename[ind:]), 'r') as nc:
                             for sn in sname:
@@ -576,8 +646,11 @@ if __name__ == '__main__':
                             lat_modis = nc.variables['Latitude'][:,0]
                             lon_modis = nc.variables['Longitude'][0,:]
 
-                    else: # May need to fix if the other variables have to be downloaded as nc4 files as well.
-                        data_modis, lat_modis, lon_modis, long_name, units = tile_to_grid(filename[ind:], args.var_snames_modis[0], path = './raw')
+                    else: 
+                        # Load the data for the tile and convert it to a grid
+                        data_modis, lat_modis, lon_modis, long_name, units = tile_to_grid(filename[ind:], 
+                                                                                          args.var_snames_modis[0], 
+                                                                                          path = './raw')
                     
                     I_modis, J_modis = data_modis.shape
                     
@@ -587,10 +660,14 @@ if __name__ == '__main__':
                     #lat_modis = lat_modis.reshape(I_modis*J_modis)
                     #lon_modis = lon_modis.reshape(I_modis*J_modis)
                 
-                    ### New idea...
+                    ### New idea to interpolate data
                     print('Finding lat/lon subsets')
+
+                    # Collect all lat and lon indices in the tile
                     lat_ind = np.where((lat >= np.nanmin(lat_modis)) & (lat <= np.nanmax(lat_modis)))[0]
                     lon_ind = np.where((lon >= np.nanmin(lon_modis)) & (lon <= np.nanmax(lon_modis)))[0]
+
+                    # Select out the longitudes
                     if (lon_modis < 0).any() & (lon_modis > 0).any():
                     #if len(lon_ind) == lon.size:
                         lon_neg = np.where(lon_modis < 0, lon_modis, np.nan)
@@ -599,6 +676,7 @@ if __name__ == '__main__':
                         
                         lon_ind = np.where((lon <= np.nanmax(lon_neg)) | (lon >= np.nanmin(lon_pos)))[0]
                     
+                     # Select out the latitude and longitude values for the loaded tile
                     lat_sub = lat[lat_ind]
                     lon_sub = lon[lon_ind]
                     #print(lat_sub)
@@ -615,7 +693,7 @@ if __name__ == '__main__':
                     # print(np.nanmin(ds.modis_data.values), np.nanmax(ds.modis_data.values))
                     # print(ds)
                     
-                    # Interpolate to 0.05 degree x 0.05 degree grid
+                    # Mesh the latitude and longitudes
                     I = lat_sub.size
                     J = lon_sub.size
                     lon_sub, lat_sub = np.meshgrid(lon_sub, lat_sub)
@@ -632,13 +710,15 @@ if __name__ == '__main__':
                     #ds_interp_values = ds_interp.modis_data.values
                     #ds_interp_values = np.reshape(I, J)
                     
-                    # Might be more efficient: convert data to an xarray, select out lat_ind, lon_ind, and set data.select(coords = [lat_ind, lon_ind]) = ds.interp.modis_data.values
+                    # Interpolate to 0.05 degree x 0.05 degree grid
                     for n, ind in enumerate(lat_ind):
                         #print(n)
+                        # Select all the MODIS latitudes between the current two latitude lines to interpolate to
                         la_ind = np.where( (lat_modis[:,0] >= lat_sub[n,0]) & (lat_modis[:,0] < (lat_sub[n,0] + resolution)) )[0]
 
                         lon_tmp = np.nanmean(lon_modis[la_ind,:], axis = 0)
 
+                        # Perform a mean along the latitude line (reducing MODIS data to 0.05 degree along latitude)
                         if args.variables[0] == 'reflectance':
                             data_tmp = {}
                             for sn in sname:
@@ -648,7 +728,7 @@ if __name__ == '__main__':
                         
                         if np.invert(lon_tmp.size == np.unique(lon_tmp).size):
                             ### NOTE: This seems to only occur at at specific tiles, and this method with the 
-                            ### interpolation later on seems to cause strange distortions along the 70˚ latitude line.
+                            ### interpolation later on seems to cause strange distortions near the 70˚ latitude line.
                             print('Not all lon are unique - collecting unique longitudes only')
                             res_ind = [m for m, lo in enumerate(lon_tmp) if lo not in lon_tmp[:m]] # Collects indices for non-repeating longitudes
                             
@@ -660,16 +740,22 @@ if __name__ == '__main__':
                             else:
                                 data_tmp = data_tmp[res_ind[:]]
                         
+                        # Interpolate along the longitude line
                         if args.variables[0] == 'reflectance':
                             for sn in sname:
+                                # Create the data as an xarray dataset
                                 ds = xarray.Dataset(data_vars = dict(modis_data = (['x'], data_tmp[sn])), 
                                                 coords = dict(x = (['x'], lon_tmp)) )
                                 
+                                # Interpolate along longitude (faster and more efficient 
+                                # than looping over longitudes to average)
                                 ds_interp = ds.interp(coords = dict(x = (['lon'], lon_sub[n,:])) )
                                 
+                                # Return the interpolated data to np.ndarray and add to the 0.05 deg x 0.05 grid
                                 tmp = np.array([data[sn][ind,lon_ind], ds_interp.modis_data.values[:]])
                                 data[sn][ind,lon_ind] = np.nanmean(tmp, axis = 0)
                         else:
+                            # Create the data as an xarray dataset
                             ds = xarray.Dataset(data_vars = dict(modis_data = (['x'], data_tmp)), 
                                                 coords = dict(x = (['x'], lon_tmp)) )
                             #print(np.nanmin(ds.modis_data.values), np.nanmax(ds.modis_data.values))
@@ -684,16 +770,20 @@ if __name__ == '__main__':
                             #    print(lon_index)
                             #    print(lon_index.size)
                             
+                            # Interpolate along longitude (faster and more efficient 
+                            # than looping over longitudes to average)
                             ds_interp = ds.interp(coords = dict(x = (['lon'], lon_sub[n,:])) )
                             #print(np.nanmin(ds_interp.modis_data.values), np.nanmax(ds_interp.modis_data.values))
                             #print(ds_interp)
                             
+                            # Return the interpolated data to np.ndarray and add to the 0.05 deg x 0.05 grid
                             tmp = np.array([data[ind,lon_ind], ds_interp.modis_data.values[:]])
                             data[ind,lon_ind] = np.nanmean(tmp, axis = 0)
                         
                     del ds, ds_interp
                     gc.collect()
-                            
+
+                    #### OLD Interpolation strategies  
                     # Recommendations: Break the process up (aggregate, then merge grid in parts, then merge into whole)
                     # Looks into os.path
                     # Possibly np.extract
@@ -758,6 +848,7 @@ if __name__ == '__main__':
                 #         ind = np.where( ((lat_full >= lat[i]) & (lat_full < (lat[i]+resolution))) & ((lon_full >= lon[j]) & (lon_full <= (lon[j]+resolution))) )[0]
                 #         data[i,j] = np.nanmean(data_full[ind])
                     
+                # Mesh the lat and lon into a grid
                 lon, lat = np.meshgrid(lon, lat)
                 
                 print('Writing data...')
@@ -765,7 +856,13 @@ if __name__ == '__main__':
             # Write the data 
             filename = 'modis.%s.%d-day.%04d.%02d.%02d.nc'%(args.variables[0], args.day_interval, timestamp.year, timestamp.month, timestamp.day)
             description = 'Global MODIS %s (%s) for an %d-day period starting at %s, and averaged down to 0.05 degree x 0.05 degree resolution.'%(long_name, units, args.day_interval, timestamp.strftime('%b %d, %Y'))
-            write_nc(data, lat, lon, [timestamp], filename = filename, var_sname = sname, description = description)
+            write_nc(data, 
+                     lat, 
+                     lon, 
+                     [timestamp], 
+                     filename = filename, 
+                     var_sname = sname, 
+                     description = description)
             
             # Create a test map
             #test_map(data, lat, lon, timestamp, '%s'%args.variables[0])
@@ -784,7 +881,7 @@ if __name__ == '__main__':
                     # Create a test map
                 #    test_map(data_full, lat_full, lon_full, timestamp, '%s_raw'%args.variables[0])        
             
-        
+            # Remove potentially large datasets to free up space
             del data, lat, lon#, data_full, lat_full, lon_full
             gc.collect()
         

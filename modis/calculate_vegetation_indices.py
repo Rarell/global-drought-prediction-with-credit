@@ -1,3 +1,8 @@
+"""Calculates vegetation indices from
+reflectance MODIS data and save the results
+to .nc files
+"""
+
 import numpy as np
 from glob import glob
 from netCDF4 import Dataset
@@ -9,16 +14,37 @@ import cartopy.crs as ccrs
 
 def calculate_ndvi(red, nir):
     '''
-    Calculate the Normalized Difference Vegetation Index using EM refractance from the red and NIR spectrum
+    Calculate the Normalized Difference Vegetation Index 
+    using EM refractance from the red and NIR spectrum
+
+    Inputs:
+    :param red: Reflectance along the "red" spectrum (can be float or np.ndarray)
+    :paran nir: Reflectance along the near infered spectrum (can be float or np.ndarray)
+
+    Outputs:
+    :param ndvi: Calculated NDVI (same format as red/nir)
     '''
 
     # Calculate the NDVI
     ndvi = (nir - red)/(nir + red)
     return ndvi
 
-def calculate_evi(blue, red, nir):
+def calculate_evi(
+        blue, 
+        red, 
+        nir
+        ):
     '''
-    Calculate the Enhanced Vegetation Index using the EM refractance from the blue, red, and NIR spectrum
+    Calculate the Enhanced Vegetation Index using the electromagnetic 
+    refractance from the blue, red, and NIR spectrum
+
+    Inputs:
+    :param blue: Reflectance along the "blue" spectrum (can be float or np.ndarray)
+    :param red: Reflectance along the "red" spectrum (can be float or np.ndarray)
+    :paran nir: Reflectance along the near infered spectrum (can be float or np.ndarray)
+
+    Outputs:
+    :param evi: Calculated EVI (same format as blue/red/nir)
     '''
 
     # Calculate the EVI
@@ -35,10 +61,22 @@ def calculate_lai_and_fpar(red, nir, surface_type):
     return
 
 
-def test_map(data, lat, lon, date, data_name):
+def test_map(
+        data, 
+        lat, 
+        lon, 
+        date, 
+        data_name
+        ) -> None:
     '''
-    Create a test map to check vegetation index calculations and ensure they were done correctly.
-    '''
+    Create a simple plot of the data to examine and test it.
+    
+    Inputs:
+    :param data: Data to be plotted (np.ndarray with shape lat x lon)
+    :param lat: Latitude grid of the data (np.ndarray with shape lat x lon)
+    :param lon: Longitude grid of the data (np.ndarray with shape lat x lon)
+    :param dates: Datetime corresponding to the present timestamp of data
+    :param data_name: Full name of the variable being plotted'''
 
     # Turn bad values into NaNs
     data[data == -9999] = np.nan
@@ -63,13 +101,15 @@ def test_map(data, lat, lon, date, data_name):
     nlevs = len(clevs) - 1
     cmap  = plt.get_cmap(name = 'BrBG', lut = nlevs)
     
+    # Projection information
     data_proj = ccrs.PlateCarree()
     fig_proj  = ccrs.PlateCarree()
 
-    # Figure
+    # Create the figure
     fig = plt.figure(figsize = [12, 16])
     ax = fig.add_subplot(1, 1, 1, projection = fig_proj)
 
+    # Make the title
     ax.set_title('%s for %s'%(data_name, date.strftime('%Y-%m-%d')), fontsize = 16)    
 
     # Add coastlines
@@ -86,8 +126,14 @@ def test_map(data, lat, lon, date, data_name):
 
     # Plot the data
     data = data.astype(np.float32)
-    cs = ax.contourf(lon, lat, data[:,:], levels = clevs, cmap = cmap, 
-                     transform = data_proj, extend = 'both', zorder = 1)
+    cs = ax.contourf(lon, 
+                     lat, 
+                     data[:,:], 
+                     levels = clevs, 
+                     cmap = cmap, 
+                     transform = data_proj, 
+                     extend = 'both', 
+                     zorder = 1)
 
     # Add a colorbar
     cbax = fig.add_axes([0.125, 0.30, 0.80, 0.02])
@@ -99,10 +145,9 @@ def test_map(data, lat, lon, date, data_name):
     
     # Save the map
     plt.savefig('%s_%s_test_map.png'%(data_name, date.strftime('%Y-%m-%d')))
-
-    plt.show(block = False)
     
     # Close the figure
+    plt.show(block = False)
     plt.close('all')
 
 def load_nc(filename, path = './'):
@@ -110,6 +155,13 @@ def load_nc(filename, path = './'):
     Load an netCDF file with multiple variables located within it
 
     The data is stored in a dictionary with the same keys as the netCDF file
+
+    Inputs:
+    :param filename: Filename of the nc file
+    :param path: Directory path to the directory with the nc file
+
+    Outputs:
+    :param data: Dictionary with loaded data (each key corresponding to a key in the nc file)
     '''
 
     data = {}
@@ -121,13 +173,32 @@ def load_nc(filename, path = './'):
 
     return data
 
-def write_nc(filename, data, lat, lon, var_name, date, path = './'):
+def write_nc(
+        data, 
+        lat, 
+        lon, 
+        date,
+        filename = 'tmp.nc', 
+        var_sname = 'tmp', 
+        description = 'Description', 
+        path = './'
+        ) -> None:
     '''
-    Write a netCDF file for geospatial data
+    Write data, and additional information such as latitude and longitude and timestamps, to a .nc file.
+    
+    Inputs:
+    :param data: Variable being written (np.ndarray with shape time x lat x lon)
+    :param lat: Latitude labels (np.ndarray with shape lat x lon)
+    :param lon: Longitude labels (np.ndarray with shape lat x lon)
+    :param date: Timestamps for data in a %Y-%m-%d format (np.ndarray with shape time)
+    :param filename: Filename of the .nc file being written
+    :param var_sname: Short name of the variable being written (i.e., variable key in the .nc file)
+    :param description: A string describing the data
+    :param path: Directory path to the directory the data will be written in
     '''
 
     # Make a description for MODIS data
-    description = 'Global MODIS %s for an %d-day period starting at %s, and averaged down to 0.05 degree x 0.05 degree resolution.'%(var_name.upper(), 8, date[0].strftime('%b %d, %Y'))
+    description = 'Global MODIS %s for an %d-day period starting at %s, and averaged down to 0.05 degree x 0.05 degree resolution.'%(var_sname.upper(), 8, date[0].strftime('%b %d, %Y'))
 
     I, J = data.shape
 
@@ -155,8 +226,9 @@ def write_nc(filename, data, lat, lon, var_name, date, path = './'):
         for n in range(len(date)):
             nc.variables['date'][n] = str(date[n])
 
-        nc.createVariable(var_name, data.dtype, ('lat', 'lon'))
-        nc.variables[str(var_name)][:,:] = data[:,:]
+        # Create and write the main variable
+        nc.createVariable(var_sname, data.dtype, ('lat', 'lon'))
+        nc.variables[str(var_sname)][:,:] = data[:,:]
 
 
 if __name__ == '__main__':
@@ -166,8 +238,10 @@ if __name__ == '__main__':
     parser.add_argument('--year', type = int, default = 0, help = 'The year to calculate the EVI and NDVI for (0 = 2000, 1 = 2001, ...)')
     parser.add_argument('--path', type = str, default = './', help = 'Directory path from the current directory to the MODIS reflectance data')
 
+    # Parse the arguments
     args = parser.parse_args()
 
+    # Determine the year to make the data for
     year = args.year + 2000
     path = args.path
 
