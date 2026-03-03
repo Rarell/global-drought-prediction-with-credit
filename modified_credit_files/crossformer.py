@@ -20,8 +20,11 @@ def cast_tuple(val, length=1):
 
 
 def apply_spectral_norm(model):
-    for module in model.modules():
+    for name, module in model.named_modules(): # for module in model.modules():
         if isinstance(module, (nn.Conv2d, nn.Linear, nn.ConvTranspose2d)):
+            # skip any conv whose name contains "sharp"
+            if "sharp" in name:
+                continue
             nn.utils.spectral_norm(module)
 
 
@@ -69,15 +72,19 @@ class CubeEmbedding(nn.Module):
 class UpBlock(nn.Module):
     def __init__(self, in_chans, out_chans, num_groups, num_residuals=2):
         super().__init__()
-        #self.conv = nn.ConvTranspose2d(in_chans, out_chans, kernel_size=2, stride=2)
+        # self.conv = nn.ConvTranspose2d(in_chans, out_chans, kernel_size=2, stride=2)
         self.conv = nn.Sequential(*[
-            nn.Upsample(scale_factor=2, mode='nearest'),
+            nn.Upsample(scale_factor=2, mode='nearest'), # Try mode='bilinear', align_corners=False, antialias=True
             nn.Conv2d(in_chans, out_chans, kernel_size=3, stride=1, padding=1)
         ])
+        # self.conv = nn.Conv2d(in_chans, out_chans, kernel_size=3, stride=1, padding=1)
+        # self.sharp = nn.Conv2d(out_chans, out_chans, kernel_size=3, padding=1, stride=1, bias=True)
+        # nn.init.zeros_(self.sharp.weight)
+        # nn.init.zeros_(self.sharp.bias)
         self.output_channels = out_chans
 
         blk = []
-        for i in range(num_residuals-1):
+        for i in range(num_residuals-1): #for i in range(num_residuals):
             blk.append(nn.Conv2d(out_chans, out_chans, kernel_size=3, stride=1, padding=1))
             blk.append(nn.GroupNorm(num_groups, out_chans))
             blk.append(nn.SiLU())
@@ -85,15 +92,39 @@ class UpBlock(nn.Module):
         self.b = nn.Sequential(*blk)
 
     def forward(self, x):
+        # x = nn.functional.interpolate(x, scale_factor=2, mode="bilinear", align_corners=False, antialias=False)
         x = self.conv(x)
-
+        # x = x + self.sharp(x)
         shortcut = x
 
         x = self.b(x)
 
         return x + shortcut
 
+class UpBlockPS(nn.Module):
+    def __init__(self, in_ch, out_ch, num_groups, scale=2, num_residuals=2):
+        super().__init__()
+        # sub-pixel conv at low res
+        self.conv = nn.Conv2d(in_ch, out_ch * scale**2, 3, stride=1, padding=1)
+        self.ps   = nn.PixelShuffle(scale)
+        # sharpening branch (identity init)
+        self.sharp = nn.Conv2d(out_ch, out_ch, 3, padding=1)
+        nn.init.zeros_(self.sharp.weight); nn.init.zeros_(self.sharp.bias)
+        self.output_channels = out_ch
+        # residual stack
+        blk = []
+        for _ in range(num_residuals):
+            blk += [nn.Conv2d(out_ch, out_ch, 3, padding=1),
+                    nn.GroupNorm(num_groups, out_ch),
+                    nn.SiLU()]
+        self.b = nn.Sequential(*blk)
 
+    def forward(self, x):
+        x = self.ps(self.conv(x))    # upsample+conv at low res
+        x = x + self.sharp(x)        # sharpen residual
+        sc = x
+        x = self.b(x)
+        return x + sc
 # cross embed layer
 
 
@@ -363,6 +394,7 @@ class CrossFormer(BaseModel):
         ff_dropout: float = 0.0,
         use_spectral_norm: bool = True,
         interp: bool = True,
+        use_pixel_shuffle = False,
         padding_conf: dict = None,
         post_conf: dict = None,
         **kwargs,
@@ -394,6 +426,7 @@ class CrossFormer(BaseModel):
             ff_dropout (float): dropout rate for feedforward layers.
             use_spectral_norm (bool): whether to use spectral normalization
             interp (bool): whether to use interpolation
+            use_pixel_shuffle (bool): whether to use pixle shuffling to upsample
             padding_conf (dict): padding configuration
             post_conf (dict): configuration for postblock processing
             **kwargs:
@@ -416,6 +449,7 @@ class CrossFormer(BaseModel):
         self.levels = levels
         self.use_spectral_norm = use_spectral_norm
         self.use_interp = interp
+        self.use_pixel_shuffle = use_pixel_shuffle
         if padding_conf is None:
             padding_conf = {"activate": False}
         self.use_padding = padding_conf["activate"]
@@ -501,12 +535,33 @@ class CrossFormer(BaseModel):
 
         # =================================================================================== #
 
-        self.up_block1 = UpBlock(1 * last_dim, last_dim // 2, dim[0])
-        self.up_block2 = UpBlock(2 * (last_dim // 2), last_dim // 4, dim[0])
-        self.up_block3 = UpBlock(2 * (last_dim // 4), last_dim // 8, dim[0])
-        #self.up_block4 = nn.ConvTranspose2d(2 * (last_dim // 8), output_channels, kernel_size=4, stride=2, padding=1)
-        self.up_block4 = nn.Upsample(scale_factor=2, mode='nearest')
-        self.conv_out = nn.Conv2d(2 * (last_dim // 8), output_channels, kernel_size=4, stride=1, padding=1)
+        if self.use_pixel_shuffle:
+            self.up_block1 = UpBlockPS(1 * last_dim, last_dim // 2, dim[0])
+            self.up_block2 = UpBlockPS(2 * (last_dim // 2), last_dim // 4, dim[0])
+            self.up_block3 = UpBlockPS(2 * (last_dim // 4), last_dim // 8, dim[0])
+            scale = 2
+            self.up_block4 = nn.Sequential(
+                nn.Conv2d(
+                    2 * (last_dim // 8),              # in_channels
+                    self.output_channels * (scale**2),# conv_out = target_channels * 4
+                    kernel_size=3,
+                    stride=1,
+                    padding=1
+                ),
+                nn.PixelShuffle(upscale_factor=scale),  # now (target_channels, H*2, W*2),
+                nn.Conv2d(self.output_channels, self.output_channels, 3, padding=1)
+                
+            )
+            self.conv4up = self.up_block4[1]
+        else:
+            self.up_block1 = UpBlock(1 * last_dim, last_dim // 2, dim[0])
+            self.up_block2 = UpBlock(2 * (last_dim // 2), last_dim // 4, dim[0])
+            self.up_block3 = UpBlock(2 * (last_dim // 4), last_dim // 8, dim[0])
+        
+            # self.up_block4 = nn.ConvTranspose2d(2 * (last_dim // 8), output_channels, kernel_size=4, stride=2, padding=1)
+            self.up_block4 = nn.Upsample(scale_factor=2, mode='nearest')
+            self.conv_out = nn.Conv2d(2 * (last_dim // 8), output_channels, kernel_size=4, stride=1, padding=1)
+
 
         if self.use_spectral_norm:
             logger.info("Adding spectral norm to all conv and linear layers")
@@ -553,7 +608,8 @@ class CrossFormer(BaseModel):
         x = self.up_block3(x)
         x = torch.cat([x, encodings[0]], dim=1)
         x = self.up_block4(x)
-        x = self.conv_out(x)
+        if not self.use_pixel_shuffle:
+            x = self.conv_out(x)
 
         if self.use_padding:
             x = self.padding_opt.unpad(x)
