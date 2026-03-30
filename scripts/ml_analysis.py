@@ -14,10 +14,15 @@ import zarr
 import imageio
 import time
 from tqdm import tqdm
+from scipy import stats
 from argparse import ArgumentParser
 from datetime import datetime, timedelta
 from netCDF4 import Dataset
 from glob import glob
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+from matplotlib import gridspec
+from matplotlib import colorbar as mcolorbar
 
 from metric_calculations import calculate_metric, calculate_rpc, calculate_acc_in_space, calculate_rmse_in_space
 from fd_calculations import calculate_climatology, calculate_sm_percentiles, calculate_sesr, calculate_fdii
@@ -32,7 +37,9 @@ from plotting import (
     make_comparison_subset_map, 
     make_anomaly_subset_map,
     make_metric_error_plots,
-    make_histogram_scatter_plot
+    make_histogram_scatter_plot,
+    plot_metric_on_existing_figure,
+    plot_map_on_existing_figure
 )
 
 # Load zarr files in a similar method as zarr2 (there are currently errors without this)
@@ -86,7 +93,7 @@ short_names = {
 
 # Define the path for each rotation
 path_to_rotation = {
-    0: '/ourdisk/hpc/ai2es/sedris/results/rotation_00/',#conv_results/',#rotation_00/',
+    0: '/ourdisk/hpc/ai2es/sedris/results/rotation_00/',#conv_results/'
     1: '/ourdisk/hpc/ai2es/sedris/results/rotation_01/',
     2: '/ourdisk/hpc/ai2es/sedris/results/rotation_02/',
     3: '/ourdisk/hpc/ai2es/sedris/results/rotation_03/',
@@ -98,7 +105,7 @@ path_to_rotation = {
     9: '/ourdisk/hpc/ai2es/sedris/results/rotation_09/',
     10: '/ourdisk/hpc/ai2es/sedris/results/rotation_10/',
     11: '/ourdisk/hpc/ai2es/sedris/results/rotation_11/',
-    'single_run': '/ourdisk/hpc/ai2es/sedris/results/upsampling/'# '/ourdisk/hpc/ai2es/sedris/results/one_experiment_run/'
+    'single_run': '/ourdisk/hpc/ai2es/sedris/results/ps_no_phys/'# '/ourdisk/hpc/ai2es/sedris/results/one_experiment_run/'
 }
 
 # Test years to load for each corresponding rotation
@@ -1295,6 +1302,7 @@ if __name__ == '__main__':
     parser.add_argument('--make_variation_plots', action = 'store_true', help = 'Make the plots comparing variation of data/data anomalies')
     parser.add_argument('--make_score_cards', action = 'store_true', help = 'Make the score cards')
     parser.add_argument('--make_case_studies', action = 'store_true', help = 'Make case study plots for multiple variables (metric distribution histograms, spatial distribution maps, model prediction maps and gifs)')
+    parser.add_argument('--appendix_figure', action = 'store_true', help = "Make the figure comparing different up sampling experiments for the manuscript's appendix")
 
     # Parse the arguments
     args = parser.parse_args()
@@ -1445,6 +1453,70 @@ if __name__ == '__main__':
             # metric_plot = np.nanmean(metric_list[metric], axis = 0)
             # clim_plot = np.nanmean(clim_list[metric], axis = 0)
             # persist_plot = np.nanmean(persist_list[metric], axis = 0)
+            
+            if metric_name == 'rmse':
+                # Perform statistical significance test here between metric_list[metric] and clim_list[metric]
+                # Recall that metric_list[metric].shape = time x forecast_day
+                # Potential DM test:
+                # Based heavily on the code by johntwk on: https://github.com/johntwk/Diebold-Mariano-Test/blob/master/dm_test.py
+                d = clim_list[metric]**2 - metric_list[metric]**2 # Compares MSE
+                def calculate_dm(d):
+                    # Get the mean the mean error difference
+                    d_bar = np.nanmean(d)
+
+                    # Typiecally taken that h = N^(1/3) + 1
+                    h = np.round(d.shape[0]**(1/3) + 1)
+                    h = int(h)
+
+                    # Determine auto covariance
+                    def autocovariance(xi, N, k, x_mean):
+                        conv = 0
+
+                        # Summation to get the auto covariance
+                        for i in range(N-k):
+                            conv = conv + ((xi[i+k] + x_mean) * (xi[i] - x_mean))
+
+                        return conv/N
+                    
+                    # Determine the gamm value for all h
+                    gamma = []
+                    for lag in range(h):
+                        gamma.append(autocovariance(d, d.shape[0], lag, d_bar))
+                    
+                    # Get V_d
+                    v_d = (gamma[0] + 2*np.nansum(gamma[1:]))/d.shape[0]
+
+                    # Determine the harvey adjustment
+                    harvey_adjustment = np.sqrt((d.shape[0] + 1 - 2*h + h*(h-1)/d.shape[0])/d.shape[0])
+
+                    # Now calculate the Diebold-Mariano statistic
+                    dm_statistic = harvey_adjustment*d_bar/np.sqrt(v_d)
+                    
+                    # Determine the p-value of the DM statistic by comparing to the t distribution
+                    p_value = 2 * stats.t.cdf(-1*np.abs(dm_statistic), df = d.shape[0] - 1)
+
+                    return dm_statistic, p_value
+                
+                # Calculate the DM statistic and p-value for each forecast step
+                dm_statistic = []; p_value = []
+                for j in range(d.shape[1]):
+                   dm, pv = calculate_dm(d[:,j])
+                   dm_statistic.append(dm); p_value.append(pv)
+
+                # Write results to a csv file
+                forecast_hour = np.arange(d.shape[1])+1
+                # Get the average RMSE values
+                metric_mean = np.nanmean(metric_list[metric], axis = 0)
+                clim_mean = np.nanmean(clim_list[metric], axis = 0)
+
+                # Begin writing the csv
+                with open('%s_%s_%s_statistical_significance.csv'%(metric_name, var_name, args.subset), 'w') as file:
+                  # Write the header
+                  file.write('forecast_day,rmse,rmse_clim,dm_statistic,p_value\n')
+
+                  # Write the statistical comparison data
+                  for j in range(d.shape[1]):
+                      file.write('%d,%4.2f,%4.2f,%4.2f,%6.4f\n'%(forecast_hour[j], metric_mean[j], clim_mean[j], dm_statistic[1], p_value[j]))
 
             # First plot is over all months
             metric_plot = metric_list[metric]
@@ -1556,6 +1628,162 @@ if __name__ == '__main__':
             # Make the case study plots one variable at a time
             for variable in tqdm(variables_to_plot):
                 make_case_study_plots(args, variable, case_study_start, case_study_end, pred_path, verbose = True)
+
+
+    if args.appendix_figure:
+        # Define the different experiments for the appendix figure
+        experiments = ['convT', 'upsampling', 'ps_no_phys', 'ps_phys']
+        # Figure titles
+        titles = ['Convolutional Transpose\nNo Physics Constraints', 
+                  'UpSampling\nNo Physics Constraints', 
+                  'PixelShuffle\nNo Physics Constraints',
+                  'PixelShuffle\nwith Physics Constraints']
+
+        # Turn the start day of the case study into a datetime
+        case_study_start = pd.to_datetime(args.case_study_start_date)
+        case_study_start = case_study_start.to_pydatetime()
+
+        # Initialize figure
+        fig_proj = ccrs.PlateCarree()
+        fig = plt.figure(figsize = [25, 20])
+        gs = fig.add_gridspec(nrows = 3, ncols = 4, hspace = 0.18, wspace = 0.08)# , height_ratios = [1, 3, 3])
+        gs_sub = gridspec.GridSpecFromSubplotSpec(1, 4, subplot_spec = gs[0,:], wspace = 0.13)
+        # axes = gs.subplots(subplot_kw = {'projection': fig_proj})
+        # fig, axes = plt.subplots(figsize = [20, 25], nrows = 3, ncols = len(experiments), 
+                                #  subplot_kw = {'projection': fig_proj})
+        # plt.subplots_adjust(hspace = -0.60)
+
+        # Goal: To make one column of the appendix for each of the experiment, 
+        # which can be easily combined in OmniGraffle (and reduces loading too much information at once)
+        for n, experiment in enumerate(experiments):
+            # Load in rmse skill metrics
+            rotation_path = {0: '/ourdisk/hpc/ai2es/sedris/results/%s/'%experiment,
+                             'single_run': '/ourdisk/hpc/ai2es/sedris/results/%s/'%experiment}
+
+            metric_list, clim_list, persist_list = load_metrics(rotations, 
+                                                                all_dates, 
+                                                                test_years, 
+                                                                subset = 'africa', 
+                                                                forecast_length = forecast_length, 
+                                                                path_to_data = args.prediction_path, 
+                                                                paths_to_rotation = rotation_path)
+            
+            rmse_skill = metric_list['rmse_swvl1']
+            rmse_clim_skill = clim_list['rmse_swvl1']
+            rmse_persist_skill = persist_list['rmse_swvl1']
+
+            # Load in 30 day forecasts
+            filename = '%s/%s/forecasts/%04d-%02d-%02dT00Z/pred_%04d-%02d-%02dT00Z_%03d.nc'%(args.prediction_path,
+                                                                                             experiment,
+                                                                                             case_study_start.year,
+                                                                                             case_study_start.month,
+                                                                                             case_study_start.day,
+                                                                                             case_study_start.year,
+                                                                                             case_study_start.month,
+                                                                                             case_study_start.day,
+                                                                                             int(24*30))
+            
+            with Dataset(filename, 'r') as nc:
+                forecast_30day = nc.variables['swvl1'][0,:,:]
+
+                # Obtain the forecast time if it is needed
+                time_30day_pred = nc.variables['time'][:]
+                time_30day_pred = datetime(1900,1,1) + timedelta(hours = time_30day_pred.item())
+
+                # Collect lon and lat data
+                lat = nc.variables['latitude'][:]
+                lon = nc.variables['longitude'][:]
+
+                # Reverse the lattitude (so the maps appears the right way up)
+                lat = lat[::-1]
+
+                # Grid the lon and lat data
+                lon, lat = np.meshgrid(lon, lat)
+
+            # Load in 60 day forecasts
+            filename = '%s/%s/forecasts/%04d-%02d-%02dT00Z/pred_%04d-%02d-%02dT00Z_%03d.nc'%(args.prediction_path,
+                                                                                             experiment,
+                                                                                             case_study_start.year,
+                                                                                             case_study_start.month,
+                                                                                             case_study_start.day,
+                                                                                             case_study_start.year,
+                                                                                             case_study_start.month,
+                                                                                             case_study_start.day,
+                                                                                             int(24*60))
+            
+            with Dataset(filename, 'r') as nc:
+                forecast_60day = nc.variables['swvl1'][0,:,:]
+
+                # Obtain the forecast time if it is needed
+                time_60day_pred = nc.variables['time'][:]
+                time_60day_pred = datetime(1900,1,1) + timedelta(hours = time_60day_pred.item())
+
+            # Add data to the plot
+                
+            # Add the metric data
+            ax = fig.add_subplot(gs_sub[0,n])
+            plot_metric_on_existing_figure(ax,
+                                           rmse_skill, 
+                                           np.arange(1, rmse_skill.shape[1]+1), 
+                                           'rmse', 
+                                           'swvl1', 
+                                           titles[n],
+                                           climatology = rmse_clim_skill,
+                                           persistence = rmse_persist_skill, 
+                                           add_label = True if n == 0 else False,
+                                           add_variation = True)
+
+            # Set colorbar information
+            cmin = 0; cmax = 55; cint = (cmax - cmin)/20
+            clevs = np.arange(cmin, cmax + cint, cint)
+            nlevs = len(clevs)
+            cmap  = plt.get_cmap(name = 'BrBG', lut = nlevs)
+            
+            # Add the 30 day forecast
+            ax = fig.add_subplot(gs[1,n], projection = fig_proj)
+            cs = plot_map_on_existing_figure(ax,
+                                            forecast_30day, 
+                                            lat, 
+                                            lon, 
+                                            cmap,
+                                            vmin = cmin,
+                                            vmax = cmax,
+                                            ylabel = '30 Day Forecast',
+                                            set_lat_ticks = True if n == 0 else False,
+                                            set_lon_ticks = False)
+                
+            # Add the 60 day forecast
+            ax = fig.add_subplot(gs[2,n], projection = fig_proj)
+            cs = plot_map_on_existing_figure(ax,
+                                            forecast_60day, 
+                                            lat, 
+                                            lon, 
+                                            cmap,
+                                            vmin = cmin,
+                                            vmax = cmax,
+                                            ylabel = '60 Day Forecast',
+                                            set_lat_ticks = True if n == 0 else False,
+                                            set_lon_ticks = True)
+
+        # Make the colorbar
+        
+        # Set the colorbar size and location
+        cbax = fig.add_axes([0.910, 0.110, 0.020, 0.50]) # Settings for a single row
+
+        # # Make the colorbar
+        cbar = mcolorbar.Colorbar(cbax, mappable = cs, cmap = cmap, extend = 'max', orientation = 'vertical')
+
+        # # Make the colorbar label
+        cbar.ax.set_ylabel(r'Soil Moisture [m$^3$ m$^{-3}$]', fontsize = 22)
+
+        # Set the colorbar tick size
+        for i in cbar.ax.yaxis.get_ticklabels():
+            i.set_size(22)
+
+        filename = 'appendix_figure.png'
+        plt.savefig('%s/%s'%(args.figure_path, filename))
+            
+        
         
 
 
