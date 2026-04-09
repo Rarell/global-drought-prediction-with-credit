@@ -652,6 +652,7 @@ def create_aridity_mask(
     p_annual = np.ones((years.size, I, J), dtype = np.float32) * np.nan
     pet_annual = np.ones((years.size, I, J), dtype = np.float32) * np.nan
 
+    print('Calculating annual means')
     # Load in and sum over all precipitation and PET values to get annual accumulations
     for t, year in enumerate(years): # Note here that P and PET should both be in units of m; also this gives total annual accumulation
         # Determine filenames and .nc keys
@@ -670,33 +671,44 @@ def create_aridity_mask(
         p = load_nc(filename_p, sname_p)
         pet = load_nc(filename_pet, sname_pet)
 
-        # Scale reduction if desired
-        #p_reduced, _, _ = reduce_spatial_scale(p, 'tp') 
-        #pet_reduced, _, _ = reduce_spatial_scale(pet, 'pev')
-
         # For GLDAS2 data only, convert PET from W m^-2 to kg m^-2 s^-1
         # (same units as precipitation in GLDAS2) 
         if dataset == 'gldas':
+            # Remove bad data
+            pet['pevap'] = np.where(pet['pevap'] < - 900, np.nan, pet['pevap'])
+            p['precip'] = np.where(p['precip'] < - 900, np.nan, p['precip'])
             # Divide by the latent heat of vaporization
             pet['pevap'] = pet['pevap'] / (2.5e6)
 
-        # Accumulate P and PET over the whole year
-        p_annual[t,:,:] = np.nansum(p[sname_p], axis = 0)
-        pet_annual[t,:,:] = np.nansum(pet[sname_pet], axis = 0)
+        # Scale reduction if desired
+        # p_reduced, _, _ = reduce_spatial_scale(p, sname_p) 
+        # pet_reduced, _, _ = reduce_spatial_scale(pet, sname_pet)
 
-        # For GLDAS2 only, convert PET from kg m^-2 to m 
+        # Accumulate P and PET over the whole year
+        p_annual[t,:,:] = np.nansum(p[sname_p], axis = 0) 
+        pet_annual[t,:,:] = np.nansum(pet[sname_pet], axis = 0) 
+        # p_annual[t,:,:] = np.nansum(p_reduced, axis = 0)
+        # pet_annual[t,:,:] = np.nansum(pet_reduced, axis = 0)
+
+        # For GLDAS2 only, convert PET and P from kg m^-2 to m 
         if dataset == 'gldas':
             # Divide by the density of water to convert units of m (used in daily PET calculation)
             pet_annual[t,:,:] = pet_annual[t,:,:] / 1000
+            p_annual[t,:,:] = p_annual[t,:,:] / 1000
 
 
+    print('Calculating aridity index')
     # Aridity index is the mean annual precipitation accumulation divided by mean annual PET accumulation
     # For the purposes of the ratio, PET is assumed positive in the aridity index calculations
     arid_index = np.nanmean(p_annual, axis = 0)/np.abs(np.nanmean(pet_annual, axis = 0)) 
+    # Some locations have inf for their index, on account of PET ~ 0; remove these
+    arid_index = np.where(np.isinf(arid_index), 0, arid_index)
 
     # When creating the aridity mask, the daily PET is also needed
     # nanmean delivers the annual mean PET accumulation; division by 365 approximates average daily accumulation
     pet_daily = np.abs(np.nanmean(pet_annual, axis = 0)) / 365 
+    if dataset == 'gldas': # For GLDAS dataset, PET is in units of m s^-1 /365; convert the s^-1 to day 
+        pet_daily = pet_daily * 24 * 3600
 
     # Aridity mask will be based on PET from across the entire year
     # Note the requirement is mean daily PET < 1 mm/day = 0.001 m/day and aridity index < 0.2
@@ -705,6 +717,7 @@ def create_aridity_mask(
     # ERA5 Only: Note there is a strange behavoir in ERA5 that tries to mask out the 
     # Congo Basin, despite it not being arid. Correct this error
     if dataset == 'era5':
+        print('Applying corrections')
         # Lat/lon box around the Congo Basin
         condition = (np.abs(test['lat']) < 10) & ((test['lon'] >= 11.5) & (test['lon'] <= 30))
 
@@ -716,6 +729,7 @@ def create_aridity_mask(
     aridity_mask[0,:,:] = ai_mask.astype(np.int16)
   
     # Write the aridity mask
+    print('Writing mask')
     with Dataset('%s/aridity_mask.nc'%path_to_data, 'w', format = 'NETCDF4') as nc:
         nc.description = 'Global aridity index based on daily %s reanalysis precipitation and potential evaporation'%dataset.upper()
 
@@ -735,8 +749,8 @@ def create_aridity_mask(
         nc.createVariable('longitude', test['lon'].dtype, lon_shape)
   
         # Add the latitude and longitude information
-        nc.variables['latitude'][:] = test['lat'][:,0]
-        nc.variables['longitude'][:] = test['lon'][0,:]
+        nc.variables['latitude'][:] = test['lat'][:,0] if dataset == 'era5' else test['lat'][:]
+        nc.variables['longitude'][:] = test['lon'][0,:] if dataset == 'era5' else test['lon'][:]
 
         # Create and store the aridity mask
         nc.createVariable('aim', aridity_mask.dtype, ('time', 'latitude', 'longitude'))
