@@ -16,7 +16,8 @@ Acceptable names for --variables and --var_snames_gldas
     - Wind Speed: wind_speed
     - Net Radiation: net_radiation
     - Pressure: pressure
-    - Soil Moisture (0-  10 cm): soil_moisture_0-10cm
+    - Specific humidity: specific_humidity
+    - Soil Moisture (0 - 10 cm): soil_moisture_0-10cm
     - Soil Moisture (10 - 40 cm): soil_moisture_10-40cm
     - Soil Moisture (40 - 100 cm): soil_moisture_40-100cm
     - Soil Moisture (100 - 200 cm): soil_moisture_100-200cm
@@ -29,6 +30,7 @@ Acceptable names for --variables and --var_snames_gldas
     - Wind Speed: Wind_f_inst
     - Net Radiation: Swnet_tavg
     - Pressure: Psurf_f_inst
+    - Specific Humidity: Qair_f_inst
     - Soil Moisture (0 - 10 cm): SoilMoi0_10cm_inst
     - Soil Moisture (10 - 40 cm): SoilMoi10_40cm_inst
     - Soil Moisture (40 - 100 cm): SoilMoi40_100cm_inst
@@ -42,6 +44,7 @@ Variable units in GLDAS dataset:
     - Wind Speed: m s^-1
     - Net Radiation: W m^-2
     - Pressure: Pa
+    - Specific Humidity: kg kg^-1
     - Soil Moisture: kg m^-2
 """
 
@@ -202,9 +205,21 @@ if __name__ == '__main__':
 
     print("Initializing variables...")
 
+    # Create a list of timestamps
+    start_time = datetime(args.start_year+1979, 1, 1)
+    end_time   = datetime(args.end_year+1979, 12, 31)
+    timestamps = date_range(start_time, end_time)
+    
+    timestamps = np.array([timestamp for timestamp in timestamps])
+
     # Construct the base of the HTTPs GLDAS is located in, and base structure of GLDAS filenames
-    url_base = 'https://hydro1.gesdisc.eosdis.nasa.gov/data/GLDAS/GLDAS_NOAH025_3H.2.1/'
-    fn_base = 'GLDAS_NOAH025_3H.A%04d%02d%02d.%s.021.nc4'
+    if end_time.year < 2000:
+        # Prior to 2000, use GLDAS v2.0
+        url_base = 'https://hydro1.gesdisc.eosdis.nasa.gov/data/GLDAS/GLDAS_NOAH025_3H.2.0/'
+        fn_base = 'GLDAS_NOAH025_3H.A%04d%02d%02d.%s.020.nc4'
+    else:
+        url_base = 'https://hydro1.gesdisc.eosdis.nasa.gov/data/GLDAS/GLDAS_NOAH025_3H.2.1/'
+        fn_base = 'GLDAS_NOAH025_3H.A%04d%02d%02d.%s.021.nc4'
 
     # All hours in a given day of GLDAS data
     hours = ['0000', '0300', '0600', '0900', '1200', '1500', '1800', '2100']
@@ -212,13 +227,6 @@ if __name__ == '__main__':
     # Load the Land-Sea mask
     # with Dataset('GPM_IMERG_LandSeaMask.2.nc4', 'r') as nc:
     #     mask = nc.variables['landseamask'][:,:]
-
-    # Create a list of timestamps
-    start_time = datetime(args.start_year+2000, 1, 1)
-    end_time   = datetime(args.end_year+2000, 12, 31)
-    timestamps = date_range(start_time, end_time)
-    
-    timestamps = np.array([timestamp for timestamp in timestamps])
     
     # Initialize a dataset 
     t = 0
@@ -358,9 +366,14 @@ if __name__ == '__main__':
                 elif variable == 'net_radiation':
                     var_sname = 'rnet'
                     desc = desc_base%(variable, 'W m-2', timestamps[n].year)
+
                 elif variable == 'pressure':
                     var_sname = 'pres'
                     desc = desc_base%(variable, 'Pa', timestamps[n].year)
+
+                elif variable == 'specific_humidity':
+                    var_sname = 'q'
+                    desc = desc_base%(variable, 'kg kg^-1', timestamps[n].year)
                     
                 # Finish preparing the file description and filename
                 desc = desc + desc_end
