@@ -106,7 +106,8 @@ units = {
     'ssr': r'J m$^{-2}$',
     'ws': r'm s$^{-1}$',
     'fg10': r'm s$^{-1}$',
-    'swvl1': r'kg m$^{-2}$', 'swvl2': r'kg m$^{-2}$', 'swvl3': r'kg m$^{-2}$', 'swvl4': r'kg m$^{-2}$',
+    # 'swvl1': r'kg m$^{-2}$', 'swvl2': r'kg m$^{-2}$', 'swvl3': r'kg m$^{-2}$', 'swvl4': r'kg m$^{-2}$',
+    'swvl1': r'm^3 m$^{-3}$', 'swvl2': r'm^3 m$^{-3}$', 'swvl3': r'm^3 m$^{-3}$', 'swvl4': r'm^3 m$^{-3}$',
     'fdii1': 'unitless', 'fdii2': 'unitless', 'fdii3': 'unitless', 'fdii4': 'unitless',
     'sesr': 'unitless'
 }
@@ -139,6 +140,7 @@ color_information = {
     'ssr': {'climits': [0, 30000000], 'cname': 'Reds'}, # Fine tune
     'ws':  {'climits': [0, 20], 'cname': 'PuOr'}, # Fine tune
     'fg10': {'climits': [0, 25], 'cname': 'PuOr'}, # Fine tune
+    # 'swvl1': {'climits': [0, 0.8], 'climits_metric': [2.1, 6.65], 'hist_values': [0, 45.5], 'max_counts': 150, 'cname': 'BrBG'},
     'swvl1': {'climits': [0, 55], 'climits_metric': [2.1, 6.65], 'hist_values': [0, 45.5], 'max_counts': 150, 'cname': 'BrBG'}, # Max color count, if used, is around 25
     'swvl2': {'climits': [0, 55], 'climits_metric': [2.1, 25.5], 'hist_values': [0, 55.5], 'max_counts': 400, 'cname': 'BrBG'},
     'swvl3': {'climits': [0, 55], 'climits_metric': [2.1, 18.0], 'hist_values': [0, 45.5], 'max_counts': 300, 'cname': 'BrBG'},
@@ -2457,6 +2459,203 @@ def plot_ffts(
 
     # Save the figure
     plt.savefig('spatial_power_spectra_%02d_day_forecast.png'%int(hour/24))
+
+def plot_metric_on_existing_figure(
+        ax,
+        metric, 
+        lead_time, 
+        metric_name, 
+        var_name, 
+        title,
+        climatology = None, 
+        persistence = None, 
+        add_label = True,
+        add_variation = False, 
+        ) -> None:
+    '''
+    Create plot of a metric against forecast lead time for an existing figure. Plot style varies with parameters, 
+    it can include climatology and persistence skill plots, a speggatti plot of multiple 
+    forecasts skill scores, or shading of one standard deviation
+
+    Input:
+    :param ax: Axes object for the figure being plotted on
+    :param metric: The metric to plot (np.ndarray). If shape is num_forecast_steps, plots metric. 
+                   If shape is n_forecasts x num_forecast_steps, plots average of metric (bold) and 
+                   speggatti plot for each forecast if add_variation = False, else plots average of
+                   metric and adds shading for 1 standard deviation of metric.
+    :param lead_time: Lead time of each forecast step (x axis of plot; np.ndarray of shape num_forecast_steps) 
+    :param metric_name: Name of the metric being plotted
+    :param var_name: Name variable being plotted. Must be a key in full_names and units
+    :param climatology: Metric score for climatology forecasts (np.ndarray of shape num_forecast_steps); if None, climatology is not plotted
+    :param persistence: Metric score for persistence forecasts (np.ndarray of shape num_forecast_steps); if None, persistence is not plotted
+    :param title: The title for the plot
+    :param add_label: Boolean; Add label for y-axis
+    :param add_variation: Boolean; Add shading indicating variation in metric skill (ndim of metric must be 2)
+    '''
+
+    # Determine the average of metric if necessary
+    if len(metric.shape) > 1:
+        metric_average = np.nanmean(metric, axis = 0)
+    else:
+        metric_average = metric
+
+    # Determine the standard deviation of metric if necessary
+    if add_variation:
+        metric_std = np.nanstd(metric, axis = 0)
+
+    
+    # Set the title
+    ax.set_title(title, fontsize = 22)
+    
+    # Make a speggatti plot if specified
+    if (len(metric.shape) > 1) & (add_variation == False):
+        I, J = metric.shape
+
+        # One line for each forecast
+        for i in range(I):
+            ax.plot(lead_time, metric[i,:], color = 'grey', linewidth = 0.5)
+
+    # Plot average/metric values
+    ax.plot(lead_time, metric_average, color = 'k', linewidth = 2.5, label = 'CrossFormer')
+
+    # Add the shading for standard deviation if specified
+    if add_variation:
+        ax.fill_between(lead_time, metric_average, metric_average + metric_std, color = 'grey', alpha = 0.5)
+        ax.fill_between(lead_time, metric_average, metric_average - metric_std, color = 'grey', alpha = 0.5)
+
+    # Plot climatology if designated
+    if climatology is not None:
+        ax.plot(lead_time, np.nanmean(climatology, axis = 0), color = 'b', linewidth = 2.5, label = 'Climatology')
+
+    # Plot persistence if designated
+    if persistence is not None:
+        ax.plot(lead_time, np.nanmean(persistence, axis = 0), color = 'r', linewidth = 2.5, label = 'Persistence')
+
+    # Add a legend if climatology and/or persistence was plotted
+    if (climatology is not None) | (persistence is not None):
+        ax.legend(fontsize = 22)
+        
+    # Add labels
+    if add_label:
+        ax.set_ylabel('%s [%s]'%(metric_name.upper(), units[var_name]), fontsize = 22)
+    ax.set_xlabel('Lead Time [Days]', fontsize = 22)
+    # ax.set_xlabel('Forecast Day', fontsize = 18)
+
+    # Set the tick size
+    for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
+        i.set_size(22)
+
+def plot_map_on_existing_figure(
+        ax,
+        data, 
+        lat, 
+        lon, 
+        cmap,
+        vmin: float = 0,
+        vmax: float = 0.8,
+        ylabel: str = 'tmp',
+        set_lat_ticks: bool = True,
+        set_lon_ticks: bool = True
+        ):
+    '''
+    Create a map data over Africa for an existing figure
+    
+    Inputs:
+    :param ax: Axes object for the figure being plotted on
+    :param data: Data that will be plotted (np.ndarray of shape lat x lon)
+    :param lat: Latitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param cmap: Color map for the map
+    :param vmin: Minimum color value to show on the color map
+    :param vmax: Maximum value to show on the color map
+    :param ylabel: Label for the y-axis
+    :param set_lat_ticks: Boolean; Add latittude tick labels (map has no tick labels if false)
+    :param set_lon_ticks: Boolean; Add longitude tick labels (map has no tick labels if false)
+
+    Outputs:
+    :param cs: The pcolormesh object plotted (for creating a colorbar)
+    '''
+    
+    # Subset information
+    lower_lat = subset_information['africa']['map_extent'][0]; upper_lat = subset_information['africa']['map_extent'][1]
+    lower_lon = subset_information['africa']['map_extent'][2]; upper_lon = subset_information['africa']['map_extent'][3]
+    
+    # Lonitude and latitude tick information
+    lat_int = 10
+    lon_int = 20
+    
+    LatLabel = np.arange(-90, 90, lat_int)
+    LonLabel = np.arange(-180, 180, lon_int)
+    
+    LonFormatter = cticker.LongitudeFormatter()
+    LatFormatter = cticker.LatitudeFormatter()
+    empty_vertical_formatter = cticker.LatitudeFormatter(cardinal_labels = {'north': '', 'south': ''})
+    empty_horizontal_formatter = cticker.LatitudeFormatter(cardinal_labels = {'east': '', 'west': ''})
+    
+    # Projection information
+    data_proj = ccrs.PlateCarree()
+    fig_proj  = ccrs.PlateCarree()
+    
+    # Add ocean features
+    ax.add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+
+    # Add coastlines and country borders
+    ax.coastlines(edgecolor = 'black', zorder = 3)
+    ax.add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+
+    # Adjust the ticks
+    ax.set_xticks(LonLabel, crs = data_proj)
+    ax.set_yticks(LatLabel, crs = data_proj)
+
+    # Set lon and lat ticks
+    if set_lat_ticks & set_lon_ticks:
+        ax.set_xticklabels(LonLabel, fontsize = 22)
+        ax.xaxis.set_major_formatter(LonFormatter)
+
+        ax.set_yticklabels(LatLabel, fontsize = 22)  
+        ax.yaxis.set_major_formatter(LatFormatter)
+
+        if ylabel is not None:
+            ax.set_ylabel(ylabel, fontsize = 22)
+
+    # Only set lon ticks and remove lat tick labels
+    elif set_lon_ticks & (not set_lat_ticks):
+        ax.set_xticklabels(LonLabel, fontsize = 22)
+        ax.xaxis.set_major_formatter(LonFormatter)
+
+        ax.yaxis.set_major_formatter(empty_horizontal_formatter)
+        ax.set_yticklabels('', fontsize = 0)
+
+    # Only set lat ticks and remove lon tick labels
+    elif set_lat_ticks & (not set_lon_ticks):
+        ax.set_yticklabels(LatLabel, fontsize = 22)  
+        ax.yaxis.set_major_formatter(LatFormatter)
+
+        ax.xaxis.set_major_formatter(empty_vertical_formatter)
+        ax.set_xticklabels('', fontsize = 0)
+
+        if ylabel is not None:
+            ax.set_ylabel(ylabel, fontsize = 22)
+
+    # Remove lat and lon tick labels
+    else:
+        ax.yaxis.set_major_formatter(empty_horizontal_formatter)
+        ax.set_yticklabels('', fontsize = 0)
+
+        ax.xaxis.set_major_formatter(empty_vertical_formatter)
+        ax.set_xticklabels('', fontsize = 0)
+
+    # Plot the data
+    cs = ax.pcolormesh(lon, lat, data, vmin = vmin, vmax = vmax,
+                            cmap = cmap, transform = data_proj, zorder = 1)
+
+    # Set the map extent
+    ax.set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
+
+    return cs
+
+   
+        
 
 
 # Main function loads in data and makes figures to test functions and tune figure parameters

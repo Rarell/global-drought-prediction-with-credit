@@ -94,6 +94,7 @@ def calculate_metric(
         longitude = nc.variables['longitude'][:]
         tmp = nc.variables['latitude'][:]
         tmp = np.cos(tmp*np.pi/180)
+        tmp = tmp/np.nanmean(tmp)
 
     # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
     latitude_weights = np.ones((ytrue.shape[1], ytrue.shape[2]))
@@ -214,8 +215,8 @@ def calculate_mae(
     error = pred - ytrue
 
     # Calculate MAE; The scalar multiple was determined via comparison with CREDIT results of global results, its purpose is unknown
-    mae = np.nanmean(np.abs(error) * latitude_weights * var_weights)*1.5708359 # Not sure why the factor is needed
-
+    mae = np.nanmean(np.abs(error) * latitude_weights * var_weights) # *1.5708359 # Factor was before remembering to divide latitude_weights by np.nanmean(latitude_weights)
+                                                                                  # Factor came from np.nansum(latitude_weights/np.nanmean(latitude_weights))/np.nansum(latitude_weights)
     return mae
 
 def calculate_mse(
@@ -241,7 +242,7 @@ def calculate_mse(
     error = pred - ytrue
 
     # Calculate MSE; The scalar multiple was determined via comparison with CREDIT results of global results, its purpose is unknown
-    mse = np.nanmean(error**2 * latitude_weights * var_weights)*1.5708359
+    mse = np.nanmean(error**2 * latitude_weights * var_weights) # *1.5708359
 
     return mse
 
@@ -268,7 +269,7 @@ def calculate_rmse(
     error = pred - ytrue
 
     # Calculate the RMSE; The scalar multiple was determined via comparison with CREDIT results of global results, its purpose is unknown
-    rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights)*1.5708359)
+    rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights))# *1.5708359)
 
     return rmse
 
@@ -330,8 +331,8 @@ def calculate_mae_in_space(
     error = pred - ytrue
 
     # Calculate MAE
-    mae = np.nanmean(np.abs(error) * latitude_weights * var_weights, axis = 0)*1.5708359 # Not sure why the factor is needed
-
+    mae = np.nanmean(np.abs(error) * latitude_weights * var_weights, axis = 0)# *1.5708359 # Factor was before remembering to divide latitude_weights by np.nanmean(latitude_weights)
+                                                                                           # Factor came from np.nansum(latitude_weights/np.nanmean(latitude_weights))/np.nansum(latitude_weights)
     return mae
 
 def calculate_mse_in_space(
@@ -357,7 +358,7 @@ def calculate_mse_in_space(
     error = pred - ytrue
 
     # Calculate MSE
-    mse = np.nanmean(error**2 * latitude_weights * var_weights, axis = 0)*1.5708359
+    mse = np.nanmean(error**2 * latitude_weights * var_weights, axis = 0)# *1.5708359
 
     return mse
 
@@ -384,7 +385,7 @@ def calculate_rmse_in_space(
     error = pred - ytrue
 
     # Calculate the RMSE
-    rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights, axis = 0)*1.5708359)
+    rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights, axis = 0))# *1.5708359)
 
     return rmse
 

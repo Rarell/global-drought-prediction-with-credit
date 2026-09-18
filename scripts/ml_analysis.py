@@ -46,7 +46,7 @@ from plotting import (
 zarr.config.set({'default_zarr_format': 2})            
 
 # Define all currently supported subsets
-subsets = ['nh', 'sh', 'tropics', 'africa', 'africa_nh', 'africa_sh', 'africa_tropics', 'conus', 'south central']
+subsets = ['nh', 'sh', 'tropics', 'africa', 'africa_nh', 'africa_sh', 'africa_tropics', 'conus', 'south central', 'sahel', 'congo', 'eastern', 'southern']
 
 # Define all upper air and diagnostic variables (surface variables are the ones not included in these)
 upper_air_variables = ['u', 'v', 'z', 'q_tot']
@@ -93,19 +93,19 @@ short_names = {
 
 # Define the path for each rotation
 path_to_rotation = {
-    0: '/ourdisk/hpc/ai2es/sedris/results/rotation_00/',#conv_results/'
-    1: '/ourdisk/hpc/ai2es/sedris/results/rotation_01/',
-    2: '/ourdisk/hpc/ai2es/sedris/results/rotation_02/',
-    3: '/ourdisk/hpc/ai2es/sedris/results/rotation_03/',
-    4: '/ourdisk/hpc/ai2es/sedris/results/rotation_04/',
-    5: '/ourdisk/hpc/ai2es/sedris/results/rotation_05/',
-    6: '/ourdisk/hpc/ai2es/sedris/results/rotation_06/',
-    7: '/ourdisk/hpc/ai2es/sedris/results/rotation_07/',
-    8: '/ourdisk/hpc/ai2es/sedris/results/rotation_08/',
-    9: '/ourdisk/hpc/ai2es/sedris/results/rotation_09/',
-    10: '/ourdisk/hpc/ai2es/sedris/results/rotation_10/',
-    11: '/ourdisk/hpc/ai2es/sedris/results/rotation_11/',
-    'single_run': '/ourdisk/hpc/ai2es/sedris/results/ps_no_phys/'# '/ourdisk/hpc/ai2es/sedris/results/one_experiment_run/'
+    0: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_00/',#conv_results/'
+    1: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_01/',
+    2: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_02/',
+    3: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_03/',
+    4: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_04/',
+    5: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_05/',
+    6: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_06/',
+    7: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_07/',
+    8: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_08/',
+    9: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_09/',
+    10: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_10/',
+    11: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_11/',
+    'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/ps_no_phys/'# '/ourdisk/hpc/ai2es/sedris/results/one_experiment_run/'
 }
 
 # Test years to load for each corresponding rotation
@@ -142,13 +142,13 @@ def make_climatology_and_persistence_metrics(args, timestamp) -> None:
 
     # For increased generality, determine the rotation from the timestamp
     for key in test_years.keys():
-        if timestamp.year in test_years[key]:
+        if (timestamp.year in test_years[key]) & np.invert(key == 'single_run'):
             rot = key
 
     # Construct the filename for the climatology and persistence datasets
     base = '%04d-%02d-%02dT00Z.nc'%(timestamp.year, timestamp.month, timestamp.day)
-    clim_filename = 'clim_%s'%base if args.subset is None else '%s_clim_%s'%base
-    persist_filename = 'persist_%s'%base if args.subset is None else '%s_persist_%s'%base
+    clim_filename = 'clim_%s'%base if args.subset is None else '%s_clim_%s'%(args.subset, base)
+    persist_filename = 'persist_%s'%base if args.subset is None else '%s_persist_%s'%(args.subset, base)
     print(clim_filename)
 
     if (os.path.exists('%s/climatology/rotation_%02d/%s'%(args.prediction_path, rot, clim_filename)) & 
@@ -1317,7 +1317,7 @@ if __name__ == '__main__':
 
         # Get all the rotations to use in the analysis
         if args.rotations == -1:
-            rotations = np.arange(len(path_to_rotation))
+            rotations = np.arange(len(path_to_rotation) - 1)
         else:
             rotations = np.arange(args.rotations)
 

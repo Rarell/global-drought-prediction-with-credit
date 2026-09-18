@@ -248,11 +248,11 @@ def load_metrics(
 
     # Initial list metrics; load in a test set of metrics that is known to exist
     if subset is None:
-        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(paths_to_rotation[0], 2023), sep = ',',
+        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(paths_to_rotation[0], 2021), sep = ',',
         # metrics_initial = pd.read_csv('%s/forecasts/metrics/2020-01-01T00Z.csv'%(paths_to_rotation['single_run']), sep = ',',
                                     header = 0, index_col = 0, nrows = forecast_length) # Read forecast_length number of rows 
     else: 
-        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z_africa.csv'%(paths_to_rotation[0], 2023), sep = ',',
+        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z_africa.csv'%(paths_to_rotation[0], 2021), sep = ',',
         # metrics_initial = pd.read_csv('%s/forecasts/metrics/2020-01-01T00Z.csv'%(paths_to_rotation['single_run']), sep = ',',
                                     header = 0, index_col = 0, nrows = forecast_length) # Read forecast_length number of rows 
     
