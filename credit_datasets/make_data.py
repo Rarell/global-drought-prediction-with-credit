@@ -149,9 +149,9 @@ def make_climatology_dataset(
     dates = np.array([datetime.fromisoformat(day) for day in time])
 
     # If the climatology file already exists, skip the calculations and load the means
-    if os.path.exists('climatology.2012.zarr') & (make_climatology | make_statistics):
+    if os.path.exists('climatology.zarr') & (make_climatology | make_statistics):
         print('Climatology file made. Loading file instead')
-        climatology = zarr.open_group('climatology.2012.zarr')
+        climatology = zarr.open_group('climatology.zarr')
     else:
 
         # Iterate through upper-air (4D) variables and get climatologies
@@ -274,8 +274,10 @@ def make_climatology_dataset(
 
             # Initialize current dataset
             sname = get_var_shortname(var)
-            # stds[sname] = np.zeros((T, N_levels, I, J), dtype = np.float32)
-            stds[sname] = np.zeros((N_levels))
+            if args.spatial_std:
+                stds[sname] = np.zeros((T, N_levels, I, J), dtype = np.float32)
+            else:
+                stds[sname] = np.zeros((N_levels))
 
             for l, level in enumerate(args.pressure_levels):
                 # Collect the arguments needed for to load and process 1 year of data
@@ -288,19 +290,21 @@ def make_climatology_dataset(
                     # Calculate and sum the error according to the day of year
                     for datum in data:
                         days = datum[1]; months = datum[2]
-                        # This method should keep the spatial variation in time and space
-                        stds[sname][l] = np.nansum([stds[sname][l], np.nanstd(datum[0][:,:,:])])
-                        
-                        # The method below will calculate the average standard deviation in space, but will not contain temporal variation as well
-                        # for t, date in enumerate(dates):
-                        #     # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
-                        #     ind = np.where( (date.day == days) & (date.month == months) )[0]
-                        #     # For non-leap years, ind can be empty; skip this day
-                        #     if len(ind) < 1:
-                        #         continue
-                        #     else:
-                        #         error = (datum[0][ind[0],:,:] - climatology[sname][t,l,:,:])**2
-                        #         stds[sname][t,l,:,:] = np.nansum([stds[sname][t,l,:,:], error], axis = 0)
+                    
+                        if args.spatial_std:
+                            # The method below will calculate the average standard deviation in space, but will not contain temporal variation as well
+                            for t, date in enumerate(dates):
+                                # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
+                                ind = np.where( (date.day == days) & (date.month == months) )[0]
+                                # For non-leap years, ind can be empty; skip this day
+                                if len(ind) < 1:
+                                    continue
+                                else:
+                                    error = (datum[0][ind[0],:,:] - climatology[sname][t,l,:,:])**2
+                                    stds[sname][t,l,:,:] = np.nansum([stds[sname][t,l,:,:], error], axis = 0)
+                        else:
+                            # This method should keep the spatial variation in time and space
+                            stds[sname][l] = np.nansum([stds[sname][l], np.nanstd(datum[0][:,:,:])])
                 
                 del data; gc.collect() # Free up memory
 
@@ -310,14 +314,19 @@ def make_climatology_dataset(
 
 
         # Repeat the process with 3D variables
-        # N = np.zeros((T)) 
-        N = 0
+        if args.spatial_std:
+            N = np.zeros((T)) 
+        else:
+            N = 0
+
         for var in variables:
 
             # Initialize current dataset
             sname = get_var_shortname(var)
-            # stds[sname] = np.zeros((T, I, J), dtype = np.float32)
-            stds[sname] = 0
+            if args.spatial_std:
+                stds[sname] = np.zeros((T, I, J), dtype = np.float32)
+            else:
+                stds[sname] = 0
 
             # Collect the arguments needed for to load and process 1 year of data
             param_args = [(year, var, sname, args.datasets, args.reduce_scale, None) for year in years]
@@ -330,142 +339,156 @@ def make_climatology_dataset(
                 for datum in data:
                     days = datum[1]; months = datum[2]
 
-                    # This method should keep the spatial variation in time (in a given year) and space
-                    stds[sname] = np.nansum([stds[sname], np.nanstd(datum[0])])
-                    if var == variables[0]:
-                        N = N+1
-
-                    # The method below will calculate the average standard deviation in space, but will not contain temporal variation as well
-                    # for t, date in enumerate(dates):
-                    #     # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
-                    #     ind = np.where( (date.day == days) & (date.month == months) )[0]
-                    #     # For non-leap years, ind can be empty; skip this day
-                    #     if len(ind) < 1:
-                    #         continue
-                    #     else:
-                    #         error = (datum[0][ind[0],:,:] - climatology[sname][t,:,:])**2
-                    #         stds[sname][t,:,:] = np.nansum([stds[sname][t,:,:], error], axis = 0)
-                    #         if var == variables[0]:
-                    #             N[t] = N[t] + 1
+                    if args.spatial_std:
+                        # The method below will calculate the average standard deviation in space, but will not contain temporal variation as well
+                        for t, date in enumerate(dates):
+                            # Get the days in the current corresponding to the day in the loop (may not be the same as t as current year may not be a leap year)
+                            ind = np.where( (date.day == days) & (date.month == months) )[0]
+                            # For non-leap years, ind can be empty; skip this day
+                            if len(ind) < 1:
+                                continue
+                            else:
+                                error = (datum[0][ind[0],:,:] - climatology[sname][t,:,:])**2
+                                stds[sname][t,:,:] = np.nansum([stds[sname][t,:,:], error], axis = 0)
+                                if var == variables[0]:
+                                    N[t] = N[t] + 1
+                    else:
+                        # This method should keep the spatial variation in time (in a given year) and space
+                        stds[sname] = np.nansum([stds[sname], np.nanstd(datum[0])])
+                        if var == variables[0]:
+                            N = N+1
 
             del data; gc.collect() # Free up memory
 
             # Decrease variable size to help with memory
             stds[sname] = stds[sname].astype(np.float32)
 
-        # Finish standard deviation calculations
-        # for t, date in enumerate(dates):
-        #     for var in upper_air_variables:
-        #         sname = get_var_shortname(var)
-        #         stds[sname][t,:,:,:] = np.sqrt(stds[sname][t,:,:,:]/(N[t]-1))
+        if args.spatial_std:
+            # Finish standard deviation calculations
+            for t, date in enumerate(dates):
+                for var in upper_air_variables:
+                    sname = get_var_shortname(var)
+                    stds[sname][t,:,:,:] = np.sqrt(stds[sname][t,:,:,:]/(N[t]-1))
 
-        #     for var in variables:
-        #         sname = get_var_shortname(var)
-        #         stds[sname][t,:,:] = np.sqrt(stds[sname][t,:,:]/(N[t]-1))
-        
-        print(N)
-        # Obtain the average standard deviation value for each variable
-        for var in all_variables:
-            sname = get_var_shortname(var)
-            stds[sname] = stds[sname]/N
-            print(sname, np.nanmin(stds[sname]), np.nanmax(stds[sname]), np.nanmean(stds[sname]))
+                for var in variables:
+                    sname = get_var_shortname(var)
+                    stds[sname][t,:,:] = np.sqrt(stds[sname][t,:,:]/(N[t]-1))
 
-        # Finally, average the means and standard deviations to a single variable
-        means = {} # Creating a new dictionary for the averaged means gets around 
-                   # the fact climatology may be a loaded in zarr array
-        for var in upper_air_variables:
-            sname = get_var_shortname(var)
-            means[sname] = np.array([np.nanmean(climatology[sname][:,l,:,:]) for l in range(len(args.pressure_levels))]).astype(np.float32)
-            # stds[sname] = np.array([np.nanmean(stds[sname][:,l,:,:]) for l in range(len(args.pressure_levels))]).astype(np.float32)
+        else:
+            print(N)
+            # Obtain the average standard deviation value for each variable
+            for var in all_variables:
+                sname = get_var_shortname(var)
+                stds[sname] = stds[sname]/N
+                print(sname, np.nanmin(stds[sname]), np.nanmax(stds[sname]), np.nanmean(stds[sname]))
 
-        for var in variables:
-            sname = get_var_shortname(var)
-            means[sname] = np.nanmean(climatology[sname][:]).astype(np.float32)
-            # stds[sname] = np.nanmean(stds[sname][:]).astype(np.float32)
+        if args.spatial_std:
+            make_zarr_group(stds, 
+                            lat, 
+                            lon, 
+                            time, 
+                            all_variables, 
+                            2012, 
+                            var_type = 'climatology', 
+                            levels = args.pressure_levels)
 
-        # Write the means to a .nc file
-        print('Writing means and standard deviations')
-        with Dataset('means.nc', 'w', format = 'NETCDF4') as nc:
-            nc.createDimension('level', size = len(args.pressure_levels))
-            #nc.createDimension('surface', size = 1)
-
-            # Create and write the upper air means
+        else:
+            # Finally, average the means and standard deviations to a single variable
+            means = {} # Creating a new dictionary for the averaged means gets around 
+                    # the fact climatology may be a loaded in zarr array
             for var in upper_air_variables:
                 sname = get_var_shortname(var)
-                nc.createVariable(sname, means[sname].dtype, ('level', ))
-                nc.variables[sname][:] = means[sname][:]
+                means[sname] = np.array([np.nanmean(climatology[sname][:,l,:,:]) for l in range(len(args.pressure_levels))]).astype(np.float32)
+                # stds[sname] = np.array([np.nanmean(stds[sname][:,l,:,:]) for l in range(len(args.pressure_levels))]).astype(np.float32)
 
-            # Create and write the remaining means
             for var in variables:
                 sname = get_var_shortname(var)
-                nc.createVariable(sname, means[sname].dtype)#, ('surface', ))
-                nc.variables[sname][:] = means[sname]
+                means[sname] = np.nanmean(climatology[sname][:]).astype(np.float32)
+                # stds[sname] = np.nanmean(stds[sname][:]).astype(np.float32)
 
-        # Write the standard deviations
-        with Dataset('stds.nc', 'w', format = 'NETCDF4') as nc:
-            nc.createDimension('level', size = len(args.pressure_levels))
-            #nc.createDimension('surface', size = 1)
+            # Write the means to a .nc file
+            print('Writing means and standard deviations')
+            with Dataset('means.nc', 'w', format = 'NETCDF4') as nc:
+                nc.createDimension('level', size = len(args.pressure_levels))
+                #nc.createDimension('surface', size = 1)
 
-            # Create and write the upper air standard deviations
-            for var in upper_air_variables:
-                sname = get_var_shortname(var)
-                nc.createVariable(sname, stds[sname].dtype, ('level', ))
-                nc.variables[sname][:] = stds[sname][:]
+                # Create and write the upper air means
+                for var in upper_air_variables:
+                    sname = get_var_shortname(var)
+                    nc.createVariable(sname, means[sname].dtype, ('level', ))
+                    nc.variables[sname][:] = means[sname][:]
 
-            # Create and write the remaining standard deviations
-            for var in variables:
-                sname = get_var_shortname(var)
-                nc.createVariable(sname, stds[sname].dtype)#, ('surface', ))
-                nc.variables[sname][:] = stds[sname]
+                # Create and write the remaining means
+                for var in variables:
+                    sname = get_var_shortname(var)
+                    nc.createVariable(sname, means[sname].dtype)#, ('surface', ))
+                    nc.variables[sname][:] = means[sname]
 
-        # Calculate 2D latitude weights
-        weights = np.ones((lat.shape))
-        weights = np.cos(lat*np.pi/180)
-        lat_tmp = lat.copy()
+            # Write the standard deviations
+            with Dataset('stds.nc', 'w', format = 'NETCDF4') as nc:
+                nc.createDimension('level', size = len(args.pressure_levels))
+                #nc.createDimension('surface', size = 1)
 
-        # Get the African region
-        lat_tmp[np.invert((lat >= -35) & (lat <= 35))] = -999
-        lat_tmp[np.invert((lon >= 335) | (lon <= 53))] = -999
+                # Create and write the upper air standard deviations
+                for var in upper_air_variables:
+                    sname = get_var_shortname(var)
+                    nc.createVariable(sname, stds[sname].dtype, ('level', ))
+                    nc.variables[sname][:] = stds[sname][:]
 
-        # Define latitude weights outside of Africa as lower values 
-        # (to weight in favor of Africa)
-        weights = np.where(lat_tmp == -999, weights/5, weights) # Alternatively to 0, weights/5 or weights/10
+                # Create and write the remaining standard deviations
+                for var in variables:
+                    sname = get_var_shortname(var)
+                    nc.createVariable(sname, stds[sname].dtype)#, ('surface', ))
+                    nc.variables[sname][:] = stds[sname]
 
-        # Normalize weights by mean(weights)
-        # Find the indices for the region
-        lat_ind = np.where((lat[:,0] >= -35) & (lat[:,0] <= 35))[0]
-        lon_ind = np.where((lon[0,:] >= 335) | (lon[0,:] <= 53))[0]
+            # Calculate 2D latitude weights
+            weights = np.ones((lat.shape))
+            weights = np.cos(lat*np.pi/180)
+            lat_tmp = lat.copy()
 
-        # Isolate the weights for the region
-        tmp = weights[lat_ind,:]
-        region_weights = tmp[:,lon_ind]
+            # Get the African region
+            lat_tmp[np.invert((lat >= -35) & (lat <= 35))] = -999
+            lat_tmp[np.invert((lon >= 335) | (lon <= 53))] = -999
 
-        # Normalize the weights
-        weights_mean = np.nanmean(region_weights)
-        weights = weights/weights_mean
+            # Define latitude weights outside of Africa as lower values 
+            # (to weight in favor of Africa)
+            weights = np.where(lat_tmp == -999, weights/5, weights) # Alternatively to 0, weights/5 or weights/10
 
-        # Collect latitudes and longitudes
-        lat = lat[:,0]
-        lon = lon[0,:]
-        coslat = np.cos(lat*np.pi/180)
+            # Normalize weights by mean(weights)
+            # Find the indices for the region
+            lat_ind = np.where((lat[:,0] >= -35) & (lat[:,0] <= 35))[0]
+            lon_ind = np.where((lon[0,:] >= 335) | (lon[0,:] <= 53))[0]
 
-        # Write lat and lons
-        with Dataset('lat_and_lons.nc', 'w') as nc:
-            # Create the dimensions
-            nc.createDimension('lat', size = lat.size)
-            nc.createDimension('lon', size = lon.size)
+            # Isolate the weights for the region
+            tmp = weights[lat_ind,:]
+            region_weights = tmp[:,lon_ind]
 
-            # Create the coordinate and weight variables
-            nc.createVariable('latitude', lat.dtype, ('lat', ))
-            nc.createVariable('longitude', lon.dtype, ('lon', ))
-            nc.createVariable('coslat', coslat.dtype, ('lat', ))
-            nc.createVariable('latitude_weights', weights.dtype, ('lat', 'lon'))
+            # Normalize the weights
+            weights_mean = np.nanmean(region_weights)
+            weights = weights/weights_mean
 
-            # Store the coordinate and weight information
-            nc.variables['latitude'][:] = lat[:]
-            nc.variables['longitude'][:] = lon[:]
-            nc.variables['coslat'][:] = coslat[:]
-            nc.variables['latitude_weights'][:] = weights[:]
+            # Collect latitudes and longitudes
+            lat = lat[:,0]
+            lon = lon[0,:]
+            coslat = np.cos(lat*np.pi/180)
+
+            # Write lat and lons
+            with Dataset('lat_and_lons.nc', 'w') as nc:
+                # Create the dimensions
+                nc.createDimension('lat', size = lat.size)
+                nc.createDimension('lon', size = lon.size)
+
+                # Create the coordinate and weight variables
+                nc.createVariable('latitude', lat.dtype, ('lat', ))
+                nc.createVariable('longitude', lon.dtype, ('lon', ))
+                nc.createVariable('coslat', coslat.dtype, ('lat', ))
+                nc.createVariable('latitude_weights', weights.dtype, ('lat', 'lon'))
+
+                # Store the coordinate and weight information
+                nc.variables['latitude'][:] = lat[:]
+                nc.variables['longitude'][:] = lon[:]
+                nc.variables['coslat'][:] = coslat[:]
+                nc.variables['latitude_weights'][:] = weights[:]
 
 def make_upper_air_dataset(args) -> None:
     '''
@@ -704,7 +727,8 @@ def make_forcing_dataset(args) -> None:
 
     # Initialize dataset
     forcings = {}
-    years = np.arange(args.years[0], args.years[1]+1)
+    # years = np.arange(args.years[0], args.years[1]+1)
+    years = np.array([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2022, 2023, 2024])
 
     # Load in a test dataset (includes leap year)
     print('Loading test data')
@@ -1002,6 +1026,7 @@ def create_parser():
     parser.add_argument('--additional-reanalysis', action='store_true', help='Replace certain variables with other datasets (e.g., replace precipitation with IMERG data), otherwise use only ERA5')
     parser.add_argument('--nthreads', type=int, default=4, help='Number of working threads for multiprocesses tasks (in make_statistics, make_forcing, and make_static)')
     parser.add_argument('--datasets', type=str, default='era5', help='Include data from non-ERA5 sources. "few" = include other reanalyeses and climate indices, "all" = include other reanalyses, climate indices, and satellite data')
+    parser.add_argument('--spatial_std', action='store_true', help = 'Calculate a climatological standard deviation file, similar to climatology.zarr')
 
     parser.add_argument('--years', type=int, nargs=2, default=[2010,2020], help='Start and end years (inclusive) of climatology and statistics data')
     parser.add_argument('--year', type=int, default=0, help='Year of the data being processed (+ 2000)')
@@ -1047,7 +1072,9 @@ if __name__ == '__main__':
     levels = args.pressure_levels # hPa/mb
 
     # List of all years for climatology/forcing calculations
-    years = np.arange(args.years[0], args.years[1]+1)
+    # years = np.arange(args.years[0], args.years[1]+1)
+    # Focus on specifically the training years
+    years = np.array([2000, 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013, 2014, 2015, 2016, 2017, 2022, 2023, 2024])
 
     # Define the total number of years to examine
     N_years = len(years)

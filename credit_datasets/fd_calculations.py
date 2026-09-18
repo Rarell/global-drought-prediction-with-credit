@@ -513,7 +513,7 @@ def calculate_sm_percentiles(
     
     # All years in the time series
     # Note GLDAS starts at 2001
-    all_years = np.arange(2001, 2025) if dataset == 'gldas' else np.arange(2000, 2025)
+    all_years = np.arange(2001, 2026) if dataset == 'gldas' else np.arange(2000, 2026)
     N_leap_days = np.sum((all_years % 4) == 0) # Note datetimes follow the scheme of a leap day every 4 years, 
     T_full = (days_per_year * all_years.size) + N_leap_days                # even if it isn't exactly correct
 
@@ -635,7 +635,7 @@ def create_aridity_mask(
 
     # All the years used for the aridity index calculation
     # Note GLDAS2 data starts at 2001
-    years = np.arange(2000, 2025) if dataset == 'era5' else np.arange(2001, 2025)
+    years = np.arange(2000, 2026) if dataset == 'era5' else np.arange(2001, 2026)
 
     # Load a test dataset to get the data size
     if dataset == 'era5':
@@ -775,6 +775,7 @@ if __name__ == '__main__':
 
     # Determine the year
     year = args.year + 2000
+    # year = args.year + 1979
 
     # Determine the path to the dataset
     path_to_data = '../era5' if args.dataset == 'era5' else '../gldas'
