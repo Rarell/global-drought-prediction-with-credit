@@ -2467,10 +2467,13 @@ def plot_metric_on_existing_figure(
         metric_name, 
         var_name, 
         title,
+        color = 'k',
         climatology = None, 
         persistence = None, 
         add_label = True,
         add_variation = False, 
+        suppress_spegatti_lines = False,
+        label = 'CrossFormer'
         ) -> None:
     '''
     Create plot of a metric against forecast lead time for an existing figure. Plot style varies with parameters, 
@@ -2489,8 +2492,11 @@ def plot_metric_on_existing_figure(
     :param climatology: Metric score for climatology forecasts (np.ndarray of shape num_forecast_steps); if None, climatology is not plotted
     :param persistence: Metric score for persistence forecasts (np.ndarray of shape num_forecast_steps); if None, persistence is not plotted
     :param title: The title for the plot
+    :param color: Color of the main line plot
     :param add_label: Boolean; Add label for y-axis
     :param add_variation: Boolean; Add shading indicating variation in metric skill (ndim of metric must be 2)
+    :param suppress_spegatti_lines: Boolean; Suppress the lighter spegatti plots when variation is not added
+    :param label: Label of the metric on the legend
     '''
 
     # Determine the average of metric if necessary
@@ -2511,17 +2517,19 @@ def plot_metric_on_existing_figure(
     if (len(metric.shape) > 1) & (add_variation == False):
         I, J = metric.shape
 
-        # One line for each forecast
-        for i in range(I):
-            ax.plot(lead_time, metric[i,:], color = 'grey', linewidth = 0.5)
+        if suppress_spegatti_lines is False:
+            # One line for each forecast
+            for i in range(I):
+                ax.plot(lead_time, metric[i,:], color = 'grey', linewidth = 0.5)
 
     # Plot average/metric values
-    ax.plot(lead_time, metric_average, color = 'k', linewidth = 2.5, label = 'CrossFormer')
+    ax.plot(lead_time, metric_average, color = color, linewidth = 2.5, label = label)
 
     # Add the shading for standard deviation if specified
     if add_variation:
-        ax.fill_between(lead_time, metric_average, metric_average + metric_std, color = 'grey', alpha = 0.5)
-        ax.fill_between(lead_time, metric_average, metric_average - metric_std, color = 'grey', alpha = 0.5)
+        color_shade = 'grey' if color == 'k' else color
+        ax.fill_between(lead_time, metric_average, metric_average + metric_std, color = color_shade, alpha = 0.5)
+        ax.fill_between(lead_time, metric_average, metric_average - metric_std, color = color_shade, alpha = 0.5)
 
     # Plot climatology if designated
     if climatology is not None:
@@ -2654,8 +2662,163 @@ def plot_map_on_existing_figure(
 
     return cs
 
-   
+
+def plot_classification_metrics(
+    metrics, 
+    lead_times,
+    metric_labels,
+    classification_variable,
+    colors: list[str] = ['k', 'r', 'b', 'darkgreen', 'orange'],
+    add_variation: bool = False,
+    path: str = './', 
+    savename: str = 'tmp_scorecard.png',
+    ) -> None:
+    """
+    Make a plot of five different classification metrics
+
+    Inputs:
+    :param metrics: List of classification metrics to plot
+    :param lead_times: Lead times to plot the metrics against
+    :param metric_labels: List of names of the classification metrics, in the same order as metrics
+    :param classification_variable: Variable the classification metric is for
+    :param colors: List of colors for each metric being plotted
+    :param add_variation: Add variation shading to the metric plots
+    :param path: The path to the directory where the scorecard will be saved
+    :param savename: The save/file name the scorecard will be saved as
+    """
+
+    # Initialize the figure
+    fig, ax = plt.subplots(figsize = [12, 12], nrows = 1, ncols = 1)
+
+    # Set the title
+    fig.suptitle(classification_variable, y = 0.92, fontsize = 22)
+
+    # Plot the metrics
+    for n, (metric, metric_label) in enumerate(zip(metrics, metric_labels)):
+        plot_metric_on_existing_figure(
+            ax,
+            metric, 
+            lead_times, 
+            '', 
+            '', 
+            '',
+            color = colors[n],
+            climatology = None, 
+            persistence = None, 
+            add_variation = add_variation, 
+            label = metric_label,
+            add_label = False,
+            suppress_spegatti_lines = True,
+        )
+
+    # Make the legend
+    ax.legend(fontsize = 22)
+
+    # Set tick limits and labels
+    # ax.set_ylim([0, 1])
+    ax.set_ylabel('Classification Metrics', fontsize = 22)
+    ax.set_xlabel('Lead Time', fontsize = 22)
+
+    for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
+        i.set_size(22)
+
+    plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
+    plt.show(block = False)    
+
+def plot_map(
+    data, 
+    lat, lon, 
+    label,
+    title: str = 'Title',
+    cmin: int = 0,
+    cmax: int = 1,
+    path: str = './', 
+    savename: str = 'tmp.png'
+    ) -> None:
+    """
+    Make a single map of a given dataset
+
+    Inputs:
+    :param data: Data that will be plotted (np.ndarray of shape lat x lon)
+    :param lat: Latitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param lon: Longitudes labels for y and y_pred (np.ndarray with shape lat x lon)
+    :param label: Name/label of the data being plotted
+    :param title: Title of the figure
+    :param cmin, cmax: Minimum and maximum values of the colorbar/shown data
+    :param path: The path to the directory where the scorecard will be saved
+    :param savename: The save/file name the scorecard will be saved as
+    """
+
+    # Colorbar information
+    cint = (cmax - cmin)/20
+    
+    clevs = np.arange(cmin, cmax + cint, cint)
+    nlevs = len(clevs)
         
+    cmap = plt.get_cmap(name = 'Reds', lut = nlevs)
+    
+    # Subset information
+    lower_lat = subset_information['africa']['map_extent'][0]; upper_lat = subset_information['africa']['map_extent'][1]
+    lower_lon = subset_information['africa']['map_extent'][2]; upper_lon = subset_information['africa']['map_extent'][3]
+    
+    # Lonitude and latitude tick information
+    lat_int = 10
+    lon_int = 20
+    
+    LatLabel = np.arange(-90, 90, lat_int)
+    LonLabel = np.arange(-180, 180, lon_int)
+    
+    LonFormatter = cticker.LongitudeFormatter()
+    LatFormatter = cticker.LatitudeFormatter()
+
+    # Projection information
+    data_proj = ccrs.PlateCarree()
+    fig_proj  = ccrs.PlateCarree()
+
+    # Initialize the figure
+    fig, ax = plt.subplots(figsize = [12, 12], nrows = 1, ncols = 1, subplot_kw = {'projection': fig_proj})
+
+    # Set the title
+    fig.suptitle(title, fontsize = 22, y = 0.92)
+
+    # Add ocean features
+    ax.add_feature(cfeature.OCEAN, facecolor = 'white', edgecolor = 'white', zorder = 2)
+
+    # Add coastlines and country borders
+    ax.coastlines(edgecolor = 'black', zorder = 3)
+    ax.add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+
+    # Adjust the ticks
+    ax.set_xticks(LonLabel, crs = data_proj)
+    ax.set_yticks(LatLabel, crs = data_proj)
+
+    # Set lon and lat ticks
+    ax.set_xticklabels(LonLabel, fontsize = 22)
+    ax.xaxis.set_major_formatter(LonFormatter)
+
+    ax.set_yticklabels(LatLabel, fontsize = 22)  
+    ax.yaxis.set_major_formatter(LatFormatter)
+
+    # Plot the data
+    cs = ax.pcolormesh(lon, lat, data, vmin = cmin, vmax = cmax,
+                            cmap = cmap, transform = data_proj, zorder = 1)
+
+    # Set the map extent
+    ax.set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
+
+    # Make the colorbar
+    cbax = fig.add_axes([0.15, 0.02, 0.73, 0.04])
+    cbar = plt.colorbar(cs, cbax, cmap = cmap, extend = None, orientation = 'horizontal')# , shrink = shrink)
+
+    # Set the colorbar label
+    cbar.ax.set_xlabel('%s'%(label), fontsize = 22)
+
+    # Set the colorbar tick size
+    for i in cbar.ax.xaxis.get_ticklabels():
+        i.set_size(22)
+
+    plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
+    plt.show(block = False)  
 
 
 # Main function loads in data and makes figures to test functions and tune figure parameters
