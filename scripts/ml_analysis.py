@@ -41,7 +41,8 @@ from plotting import (
     plot_metric_on_existing_figure,
     plot_map_on_existing_figure,
     plot_classification_metrics,
-    plot_map
+    plot_map,
+    make_barplot,
 )
 
 # Load zarr files in a similar method as zarr2 (there are currently errors without this)
@@ -426,6 +427,7 @@ def make_subset_metrics(args, timestamp) -> None:
     
     return
 
+
 def add_fd_indices(
         direct, 
         sm, 
@@ -782,6 +784,7 @@ def make_fd_indices(args) -> None:
                                mask)
 
     return
+
 
 def make_variation_plots(args) -> None:
     '''
@@ -1359,6 +1362,7 @@ def make_case_study_plots(
     sname = '%s_anomaliy_gif.mp4'%variable if args.subset is None else '%s_%s_anomaly_gif.mp4'%(args.subset, variable)
     imageio.mimsave('%s/%s'%(args.figure_path, sname), anomaly_images, format = 'FFMPEG')
 
+
 def _determine_classification_metrics(true, pred, metrics_ts, metrics_space, leniency = None):
     """
     Calculate classification metrics and save them to a set of dictionaries
@@ -1437,6 +1441,7 @@ def _determine_classification_metrics(true, pred, metrics_ts, metrics_space, len
     metrics_space['%s_%s'%(fd_label, 'csi')] += csi
     metrics_space['%s_%s'%(fd_label, 'ets')] += ets
 
+
 def _make_classification_plots(
             metrics_ts, lead_times, 
             metrics_space, lat, lon, 
@@ -1504,7 +1509,7 @@ def _make_classification_plots(
 
             # Make maps of FD classification maps
             for metric, metric_name in zip(metrics_list, metrics_names):
-                print(metric)
+                # print(metric)
                 if fd_type == 'standard':
                     filename_1day  = 'africa_%s_classification_%s_1_day_forecast_map.png'%(fd_label, metric)
                     filename_30day = 'africa_%s_classification_%s_30_day_forecast_map.png'%(fd_label, metric)
@@ -1600,6 +1605,7 @@ if __name__ == '__main__':
     parser.add_argument('--make_case_studies', action = 'store_true', help = 'Make case study plots for multiple variables (metric distribution histograms, spatial distribution maps, model prediction maps and gifs)')
     parser.add_argument('--appendix_figure', action = 'store_true', help = "Make the figure comparing different up sampling experiments for the manuscript's appendix")
     parser.add_argument('--make_fd_metrics', action = 'store_true', help = 'Make classification metrics of FD predictions')
+    parser.add_argument('--make_feature_importance_plots', action = 'store_true', help = 'Make plots of permutation importances and SHAP values')
 
     # Parse the arguments
     args = parser.parse_args()
@@ -1895,7 +1901,6 @@ if __name__ == '__main__':
     if args.make_fd_metrics:
         lat = lon = None
 
-
         # For increased generality, determine the rotation from the timestamp
         if args.single_experiment_run:
             rot = 'single_run'
@@ -1968,8 +1973,8 @@ if __name__ == '__main__':
         metrics_onset_space = {}
         metrics_term_ts = {}
         metrics_term_space = {}
-        N = len(directories[:10])
-        for directory in new_sort(directories)[:10]:
+        N = len(directories[:366])
+        for directory in new_sort(directories)[:366]:
             print(directory)
             files = glob('%s/pred_*.nc'%(directory), recursive = True)
             files_sorted = new_sort(files)
@@ -2110,6 +2115,215 @@ if __name__ == '__main__':
                 fd_type = 'termination'
             )
             
+    # Make figures for feature importances
+    if args.make_feature_importance_plots:
+        import pandas as pds
+        import shap
+        import matplotlib.pyplot as plt
+        from config import INPUT_VARIABLE_SYMBOLIC_NAMES  as input_names_long
+        from config import OUTPUT_VARIABLE_NAMES as output_names
+        from config import OUTPUT_VARIABLE_SYMBOLIC_NAMES as output_names_long
+
+        # For increased generality, determine the rotation from the timestamp
+        if args.single_experiment_run:
+            rot = 'single_run'
+        else:
+            for key in test_years.keys():
+                if timestamp.year in test_years[key]:
+                    rot = key
+
+        # Obtain the path to the performance metric data
+        path = path_to_rotation[rot]
+
+        # Collect all permutation importance files
+        region = 'none' if args.subset is None else args.subset
+        files = glob('%s/feature_importances_%s_*.csv'%(path, region), recursive = True)
+
+        for file in np.sort(files):
+            print(file)
+
+            # Load feature importances for all instances
+            data_df = pds.read_csv(file, sep = ',', index_col = 0)
+            data_df = data_df.reset_index(names = 'input_names')
+            data_df['input_names_long'] = input_names_long
+
+            # Sort for the highest importances
+            data_df = data_df.sort_values('importance', ascending = False)
+
+            print(data_df)
+
+            # Determine the output variable indices from the filename
+            filename = file.split('/')[-1]
+            output_indices = filename.split('_')
+            output_indices = output_indices[3:] # [0] = feature, [1] = importances, [2] is region
+            output_indices[-1] = output_indices[-1][:-4] # Strips .csv off the last entry
+            print(output_indices)
+            outputs = [output_names[int(ind)] for ind in output_indices]
+            outputs_long = [output_names_long[int(ind)] for ind in output_indices]
+            print(outputs)
+
+            # Construct title and figure name
+            title = ' Permutation Importances for Globe'  if args.subset is None else ' Permutation Importances for %s'%region.title()
+            title = ', '.join(outputs_long) + title if len(outputs_long) < 5 else title[1:] # Strips out the white space at the start
+            
+            savename = 'feature_importances_barplot_global_' if args.subset is None else 'feature_importances_barplot_%s_'%region
+            savename = savename + '_'.join(outputs) + '.png'
+            print(title, savename)
+
+            # Make bar plots of mean importances with with standard deviation error bars; top 10 variables
+            make_barplot(
+                data_df['importance'][:10], 
+                data_df['input_names_long'][:10], 
+                bars_std = data_df['importance_std'][:10], # Note the index is the input variable names 
+                title = title, 
+                ylabel = 'Permutation Importances', 
+                path = args.figure_path, 
+                savename = savename,
+            )
+
+        # Load feature importance SHAP values
+        files = glob('%s/shapely_values_%s_*.csv'%(path, region), recursive = True)
+        for file in files:
+            print(file)
+
+            # Load feature importances for all instances
+            data_df = pds.read_csv(file, sep = ',', index_col = 0)
+            data_df = data_df.reset_index(names = 'input_names')
+            data_df['input_names_long'] = input_names_long
+
+            # Sort for the highest importances
+            data_df = data_df.sort_values('importances', ascending = False)
+
+            print(data_df)
+
+            # Determine the output variable indices from the filename
+            filename = file.split('/')[-1]
+            output_indices = filename.split('_')
+            output_indices = output_indices[3:] # [0] = shapely, [1] = values, [2] is region
+            output_indices[-1] = output_indices[-1][:-4] # Strips .csv off the last entry
+            print(output_indices)
+            outputs = [output_names[int(ind)] for ind in output_indices]
+            outputs_long = [output_names_long[int(ind)] for ind in output_indices]
+            print(outputs)
+
+            # Construct title and figure name
+            title = ' Shapely Value Importances for Globe'  if args.subset is None else ' Shapely Value Importances for %s'%region.title()
+            title = ', '.join(outputs_long) + title if len(outputs_long) < 5 else title[1:] # Strips out the white space at the start
+            
+            savename = 'shapely_importances_barplot_global_' if args.subset is None else 'shapely_importances_barplot_%s_'%region
+            savename = savename + '_'.join(outputs) + '.png'
+            print(title, savename)
+
+            # Make bar plots of mean importances; top 10 variables
+            make_barplot(
+                data_df['importances'][:10], 
+                data_df['input_names_long'][:10], 
+                bars_std = None,
+                title = title, 
+                ylabel = 'Shapely Importances', 
+                path = args.figure_path, 
+                savename = savename,
+            )
+
+            file_new = file[:-4] # Strip off the .csv
+            with Dataset(f"{file_new}.nc", 'r') as nc:
+                shap_values = shap.Explanation(
+                    values = nc.variables["shap_values"][:],
+                    data = nc.variables["original_feature"][:],
+                    base_values = np.nanmean(nc.variables["original_feature"][:]),
+                    feature_names = input_names_long,
+                    output_names = outputs_long,
+                )
+       
+            # Construct title and figure name for the beeswarm plot
+            title = 'Shapely Values of over the Globe for '%(outputs_long)  if args.subset is None else 'Shapely Values over %s for'%(region.title())
+            title = title + ', '.join(outputs_long) if len(outputs_long) < 5 else title
+            
+            savename = 'shapely_beeswarm_global_' if args.subset is None else 'shapely_beeswarm_%s_'%region
+            savename = savename + '_'.join(outputs) + '.png'
+
+            # Make SHAP Beeswarm plot
+            fig, ax = plt.subplots(figsize = (10, 10), nrows = 1, ncols = 1)
+            bsw = shap.plots.beeswarm(
+                shap_values,
+                max_display = 10,
+                s = 10,
+                color = shap.plots.colors.red_blue,
+                ax = ax,
+                show = False,
+                color_bar = True,
+                plot_size = None, 
+                group_remaining_features = False,
+            )
+
+            ax.set_title(title, fontsize = 12)
+
+            for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
+                i.set_size(12)
+
+            # Save the figures
+            plt.savefig('%s/%s'%(args.figure_path, savename), bbox_inches = 'tight')
+            plt.show(block = False)
+
+
+            # Make a SHAP decision plot
+            # Construct title and figure name for the beeswarm plot
+            title = 'SHAP Decision Trajectory for Inputs over the Globe for '%(outputs_long) if args.subset is None else 'SHAP Decision Trajectory for Inputs over %s for '%(region.title())
+            title = title + ', '.join(outputs_long) if len(outputs_long) < 5 else title
+
+            savename = 'shapely_decision_plot_global_' if args.subset is None else 'shapely_decision_plot_%s_'%region
+            savename = savename + '_'.join(outputs) + '.png'
+
+            # Make SHAP Beeswarm plot
+            fig, ax = plt.subplots(figsize = (10, 10), nrows = 1, ncols = 1)
+            dcp = shap.plots.decision(
+                shap_values.base_values,
+                shap_values.values,
+                shap_values.data,
+                feature_names = input_names_long,
+                feature_display_range = slice(-1, -10, -1),
+                # ax = ax,
+                show = False,
+                color_bar = True,
+            )
+
+            ax.set_title(title, fontsize = 12)
+
+            for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
+                i.set_size(12)
+
+            # Save the figures
+            plt.savefig('%s/%s'%(args.figure_path, savename), bbox_inches = 'tight')
+            plt.show(block = False)
+
+
+            # May make a SHAP heatmap and decision plot
+            # Construct title and figure name for the beeswarm plot
+            title = 'SHAP Heatmap for Global Inputs for '%(outputs_long) if args.subset is None else 'SHAP Heatmap for %s Inputs for '%(region.title())
+            title = title + ', '.join(outputs_long) if len(outputs_long) < 5 else title
+
+            savename = 'shapely_heatmap_global_' if args.subset is None else 'shapely_heatmap_%s_'%region
+            savename = savename + '_'.join(outputs) + '.png'
+
+            # Make SHAP Beeswarm plot
+            fig, ax = plt.subplots(figsize = (10, 10), nrows = 1, ncols = 1)
+            hmp = shap.plots.heatmap(
+                shap_values,
+                max_display = 10,
+                ax = ax,
+                show = False,
+            )
+
+            ax.set_title(title, fontsize = 12)
+
+            for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
+                i.set_size(12)
+
+            # Save the figures
+            plt.savefig('%s/%s'%(args.figure_path, savename), bbox_inches = 'tight')
+            plt.show(block = False)
+            
+        
 
     # Make the case study plots if requested
     if args.make_case_studies:

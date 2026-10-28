@@ -73,9 +73,11 @@ def subset_data(
     lon_sub = longitude[lon_ind]
 
     # Subset the data
-    if len(data.shape) < 3:
+    if len(data.shape) == 2:
         data_sub = data[:,lon_ind]
         data_sub = data_sub[lat_ind,:]
+    elif len(data.shape) == 1:
+        data_sub = data[lat_ind]
     else:
         data_sub = data[:,:,lon_ind]
         data_sub = data_sub[:,lat_ind,:]

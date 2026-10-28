@@ -602,6 +602,7 @@ def make_comparison_map(
     plt.show(block = False)
     plt.close()
 
+
 def make_anomaly_map(
         y, 
         y_pred, 
@@ -762,6 +763,7 @@ def make_anomaly_map(
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
     plt.close()
+
 
 def make_comparison_subset_map(
         y, 
@@ -1248,6 +1250,7 @@ def make_error_map(
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
 
+
 def make_error_subset_map(
         acc, 
         rmse, 
@@ -1374,6 +1377,7 @@ def make_error_subset_map(
     # Save the figure
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
+
 
 # Histogram scatter plot
 def make_histogram_scatter_plot(
@@ -1548,6 +1552,7 @@ def make_histogram(
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
 
+
 def make_metric_error_plots(
         ytrue, 
         files, 
@@ -1652,11 +1657,13 @@ def make_metric_error_plots(
         # Make the RMSE histogram plot
         make_histogram(rmse, plot_sname, 'rmse', path = figure_path, savename = '%s_%s_rmse_histogram.png'%(subset, variable))
 
+
 def make_physical_comparison_plot():
     '''
     Make plots showing calculations from true labels vs predicted labels
     '''
     return
+
 
 def running_sum(
         data, 
@@ -1684,6 +1691,7 @@ def running_sum(
 
     # print(N, run_sum)
     return run_sum
+
 
 def calculate_percentiles(
         data, 
@@ -1807,6 +1815,7 @@ def calculate_percentiles(
     percentiles_0 = np.array(percentiles_0)
 
     return data, percentiles_100, percentiles_98, percentiles_95, percentiles_90, percentiles_80, percentiles_70, percentiles_50, percentiles_30, percentiles_20, percentiles_10, percentiles_5, percentiles_2, percentiles_0
+
 
 def make_modified_fingerprint_plot(
         timeseries, 
@@ -2460,6 +2469,7 @@ def plot_ffts(
     # Save the figure
     plt.savefig('spatial_power_spectra_%02d_day_forecast.png'%int(hour/24))
 
+
 def plot_metric_on_existing_figure(
         ax,
         metric, 
@@ -2552,6 +2562,7 @@ def plot_metric_on_existing_figure(
     # Set the tick size
     for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
         i.set_size(22)
+
 
 def plot_map_on_existing_figure(
         ax,
@@ -2725,6 +2736,7 @@ def plot_classification_metrics(
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)    
 
+
 def plot_map(
     data, 
     lat, lon, 
@@ -2820,6 +2832,42 @@ def plot_map(
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)  
 
+
+def make_barplot(bars, labels, bars_std = None, title = 'title', ylabel = 'importances', path = './', savename = 'tmp.png'):
+    """
+    Make a barplot of given results
+    """
+
+    # Make the plot
+    fig, ax = plt.subplots(figsize = [12, 8])
+
+    # Set the title
+    ax.set_title(title, fontsize = 18)
+
+    # Make the barplot
+    ax.bar(
+        np.arange(0, 1.2*len(bars), 1.2), 
+        bars, 
+        width = 0.8, 
+        yerr = bars_std, 
+        tick_label = labels, 
+        capsize = 4.0, 
+        facecolor = '#069AF3', 
+        edgecolor = 'k'
+    )
+
+    # Floor the y limit at 0
+    ylims = ax.get_ylim()
+    ax.set_ylim([0, ylims[1]])
+
+    ax.set_ylabel(ylabel, fontsize = 18)
+
+    # Set tick sizes
+    for i in ax.xaxis.get_ticklabels() + ax.yaxis.get_ticklabels():
+        i.set_size(18)
+
+    plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
+    plt.show(block = False)
 
 # Main function loads in data and makes figures to test functions and tune figure parameters
 if __name__ == '__main__':
