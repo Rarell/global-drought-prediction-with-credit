@@ -9,6 +9,8 @@ import zarr
 from datetime import datetime, timedelta
 from netCDF4 import Dataset
 
+import torch
+
 from utils import subset_data
 
 def calculate_metric(
@@ -161,7 +163,8 @@ def calculate_acc(
         pred, 
         ytrue, 
         latitude_weights = 1, 
-        var_weights = 1
+        var_weights = 1,
+        axis = None,
         ) -> float:
     '''
     Calculate the anomaly correlation coefficient (ACC)
@@ -183,12 +186,31 @@ def calculate_acc(
     pred_prime = pred - np.nanmean(pred)
     yprime = ytrue - np.nanmean(ytrue)
 
-    # Determine the denominator of the correlation separately (due to its lengthy nature)
-    denominator = np.sqrt(np.nansum(pred_prime**2 * latitude_weights * var_weights)
-                          * np.nansum(yprime**2 * latitude_weights * var_weights)) + epsilon
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+
     
-    # Calculate the ACC
-    acc = np.nansum(pred_prime * yprime * latitude_weights * var_weights) / denominator
+    if isinstance(yprime, torch.Tensor):
+        # Determine the denominator of the correlation separately (due to its lengthy nature)
+        denominator = torch.sqrt(torch.sum(pred_prime**2 * latitude_weights * var_weights, dim = axis)
+                            * torch.sum(yprime**2 * latitude_weights * var_weights, dim = axis)) + epsilon
+        
+        # Calculate the ACC
+        acc = torch.sum(pred_prime * yprime * latitude_weights * var_weights, dim = axis) / denominator
+    elif isinstance(yprime, np.ndarray):
+        # Determine the denominator of the correlation separately (due to its lengthy nature)
+        denominator = np.sqrt(np.nansum(pred_prime**2 * latitude_weights * var_weights, axis = axis)
+                            * np.nansum(yprime**2 * latitude_weights * var_weights, axis = axis)) + epsilon
+        
+        # Calculate the ACC
+        acc = np.nansum(pred_prime * yprime * latitude_weights * var_weights, axis = axis) / denominator
 
     return acc
 
@@ -196,7 +218,8 @@ def calculate_mae(
         pred, 
         ytrue, 
         latitude_weights = 1, 
-        var_weights = 1
+        var_weights = 1,
+        axis = None,
         ) -> float:
     '''
     Calculate mean absolute error (MAE)
@@ -214,16 +237,30 @@ def calculate_mae(
     # Determine the error
     error = pred - ytrue
 
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+
     # Calculate MAE; The scalar multiple was determined via comparison with CREDIT results of global results, its purpose is unknown
-    mae = np.nanmean(np.abs(error) * latitude_weights * var_weights) # *1.5708359 # Factor was before remembering to divide latitude_weights by np.nanmean(latitude_weights)
-                                                                                  # Factor came from np.nansum(latitude_weights/np.nanmean(latitude_weights))/np.nansum(latitude_weights)
+    if isinstance(error, torch.Tensor):
+        mae = torch.mean(torch.abs(error) * latitude_weights * var_weights, dim = axis)
+    elif isinstance(error, np.ndarray):
+        mae = np.nanmean(np.abs(error) * latitude_weights * var_weights, axis = axis) # *1.5708359 # Factor was before remembering to divide latitude_weights by np.nanmean(latitude_weights)
+                                                                                    # Factor came from np.nansum(latitude_weights/np.nanmean(latitude_weights))/np.nansum(latitude_weights)
     return mae
 
 def calculate_mse(
         pred, 
         ytrue, 
         latitude_weights = 1, 
-        var_weights = 1
+        var_weights = 1,
+        axis = None,
         ) -> float:
     '''
     Calculate mean square error (MSE)
@@ -241,8 +278,21 @@ def calculate_mse(
     # Determine the error
     error = pred - ytrue
 
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+    
     # Calculate MSE; The scalar multiple was determined via comparison with CREDIT results of global results, its purpose is unknown
-    mse = np.nanmean(error**2 * latitude_weights * var_weights) # *1.5708359
+    if isinstance(error, torch.Tensor):
+        mse = torch.mean(error**2 * latitude_weights * var_weights, dim = axis) # *1.5708359
+    elif isinstance(error, np.ndarray):
+        mse = np.nanmean(error**2 * latitude_weights * var_weights, axis = axis) # *1.5708359
 
     return mse
 
@@ -250,7 +300,8 @@ def calculate_rmse(
         pred, 
         ytrue, 
         latitude_weights = 1, 
-        var_weights = 1
+        var_weights = 1,
+        axis = None,
         ) -> float:
     '''
     Calculate the root mean square error (RMSE)
@@ -268,8 +319,21 @@ def calculate_rmse(
     # Determine the error
     error = pred - ytrue
 
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+
     # Calculate the RMSE; The scalar multiple was determined via comparison with CREDIT results of global results, its purpose is unknown
-    rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights))# *1.5708359)
+    if isinstance(error, torch.Tensor):
+        rmse = torch.sqrt(torch.mean(error**2 * latitude_weights * var_weights, dim = axis))# *1.5708359)
+    elif isinstance(error, np.ndarray):
+        rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights, axis = axis))# *1.5708359)
 
     return rmse
 
@@ -299,12 +363,30 @@ def calculate_acc_in_space(
     pred_prime = pred - np.nanmean(pred, axis = 0)
     yprime = ytrue - np.nanmean(ytrue, axis = 0)
 
-    # Determine the denominator of the correlation separately (due to its lengthy nature)
-    denominator = np.sqrt(np.nansum(pred_prime**2 * latitude_weights * var_weights, axis = 0)
-                          * np.nansum(yprime**2 * latitude_weights * var_weights, axis = 0)) + epsilon
-    
-    # Calculate the ACC
-    acc = np.nansum(pred_prime * yprime * latitude_weights * var_weights, axis = 0) / denominator
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+
+    if isinstance(yprime, torch.Tensor):
+        # Determine the denominator of the correlation separately (due to its lengthy nature)
+        denominator = torch.sqrt(torch.sum(pred_prime**2 * latitude_weights * var_weights, dim = 0)
+                            * torch.sum(yprime**2 * latitude_weights * var_weights, dim = 0)) + epsilon
+        
+        # Calculate the ACC
+        acc = torch.sum(pred_prime * yprime * latitude_weights * var_weights, dim = 0) / denominator
+    elif isinstance(yprime, np.ndarray):
+        # Determine the denominator of the correlation separately (due to its lengthy nature)
+        denominator = np.sqrt(np.nansum(pred_prime**2 * latitude_weights * var_weights, axis = 0)
+                            * np.nansum(yprime**2 * latitude_weights * var_weights, axis = 0)) + epsilon
+        
+        # Calculate the ACC
+        acc = np.nansum(pred_prime * yprime * latitude_weights * var_weights, axis = 0) / denominator
 
     return acc
 
@@ -330,9 +412,23 @@ def calculate_mae_in_space(
     # Determine the error
     error = pred - ytrue
 
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+
+
     # Calculate MAE
-    mae = np.nanmean(np.abs(error) * latitude_weights * var_weights, axis = 0)# *1.5708359 # Factor was before remembering to divide latitude_weights by np.nanmean(latitude_weights)
-                                                                                           # Factor came from np.nansum(latitude_weights/np.nanmean(latitude_weights))/np.nansum(latitude_weights)
+    if isinstance(error, torch.Tensor):
+        mae = torch.mean(torch.abs(error) * latitude_weights * var_weights, dim = 0)
+    elif isinstance(error, np.ndarray):
+        mae = np.nanmean(np.abs(error) * latitude_weights * var_weights, axis = 0)# *1.5708359 # Factor was before remembering to divide latitude_weights by np.nanmean(latitude_weights)
+                                                                                            # Factor came from np.nansum(latitude_weights/np.nanmean(latitude_weights))/np.nansum(latitude_weights)
     return mae
 
 def calculate_mse_in_space(
@@ -357,8 +453,22 @@ def calculate_mse_in_space(
     # Determine the error
     error = pred - ytrue
 
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+
+
     # Calculate MSE
-    mse = np.nanmean(error**2 * latitude_weights * var_weights, axis = 0)# *1.5708359
+    if isinstance(error, torch.Tensor):
+        mse = torch.mean(error**2 * latitude_weights * var_weights, dim = 0)
+    elif isinstance(error, np.ndarray):
+        mse = np.nanmean(error**2 * latitude_weights * var_weights, axis = 0)
 
     return mse
 
@@ -384,8 +494,21 @@ def calculate_rmse_in_space(
     # Determine the error
     error = pred - ytrue
 
+    space_shape = (ytrue.shape[-2], ytrue.shape[-1])
+
+    # Broadcast weights if necessary
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != space_shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], space_shape)
+    if isinstance(var_weights, np.ndarray):
+        if var_weights.shape != space_shape:
+            var_weights = np.broadcast_to(var_weights[:, np.newaxis], space_shape)
+
     # Calculate the RMSE
-    rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights, axis = 0))# *1.5708359)
+    if isinstance(error, torch.Tensor):
+        rmse = torch.sqrt(torch.mean(error**2 * latitude_weights * var_weights, dim = 0))
+    elif isinstance(error, np.ndarray):
+        rmse = np.sqrt(np.nanmean(error**2 * latitude_weights * var_weights, axis = 0))# *1.5708359)
 
     return rmse
 
