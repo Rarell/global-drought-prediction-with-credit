@@ -1012,6 +1012,7 @@ class _CpuPool:
     def get(self, g: int):
         b = int(np.searchsorted(self.cum, g, side="right") - 1)
         w = int(g - self.cum[b])
+        print(len(self.xs), b)
         return self.xs[b][w:w + 1], self.ys[b][w:w + 1]
 
 
@@ -1206,7 +1207,7 @@ def shapley_values(
     else:
         explain_idx = rng.choice(pool.total, size=min(n_explain, pool.total), replace=False)
     all_idx = np.arange(pool.total)
- 
+    print(pool.total)
     n_channels = pool.xs[0].shape[variable_axis]
     grouped = set(i for ids in idx_lists for i in ids)
     ungrouped = [c for c in range(n_channels) if c not in grouped]
@@ -1276,7 +1277,8 @@ def shapley_values(
         # for _ in range(n_permutations):
             b = int(rng.choice(candidates))
             # b = int(rng.integers(0, pool.total - 1))
-            b = b + 1 if b >= e else b           # any sample except e
+            # b = b + 1 if b >= e else b           # any sample except e
+            print(b)
             x_b, _ = pool.get(b)
             orders = [rng.permutation(G)]
             if antithetic:
@@ -1431,6 +1433,10 @@ def load_credit_model(config, backend, dataset_type = 'training', nprocesses = 1
     if build_cache == True:
         # Run in parallel
         if nprocesses > 1:
+            # Note this process does not seem to work in parallel; 
+            # the different loader objects seem to interfere with each other 
+            # #and replaced datetime indices with freshly loaded strings,
+            # causing errors
             import multiprocessing as mp
 
             # Construct the arguments list
@@ -1708,7 +1714,7 @@ if __name__ == "__main__":
             dataloader,
             variable_names,
             n_explain = args.n_repeats, # conf["predict"]["batch_size"],
-            n_permutations = 10, # int(np.sqrt(args.n_repeats)),
+            n_permutations = 50, # int(np.sqrt(args.n_repeats)),
             mode = "prediction",
             value_fn = metric_fn,
             value_kwargs = metric_kwargs,
@@ -1719,7 +1725,7 @@ if __name__ == "__main__":
             postblock = postblock, 
             min_gap = 10, # Min gap of 10 days to match permutations
             max_gap = 60, # Max spacing of 2 months to avoid seasonal overlap (note only forecast_len = 1 is explained)
-            explain_spacing = "auto",
+            explain_spacing = None, #"auto",
             device = device,
             autocast = False,
             seed = conf["seed"],
@@ -1728,7 +1734,7 @@ if __name__ == "__main__":
 
         importances.mean_abs = shap_global_ci(
             importances,
-            n_resamples = 5000,
+            n_resamples = 1000,
             ci = 0.95,
             seed = conf["seed"],
         )

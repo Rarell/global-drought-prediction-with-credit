@@ -8,9 +8,11 @@ import zarr
 
 from datetime import datetime, timedelta
 from netCDF4 import Dataset
+from typing import Tuple
 
 import torch
 
+from temporal_bootstrapping import block_bootstrap_time_indices
 from utils import subset_data
 
 def calculate_metric(
@@ -25,8 +27,9 @@ def calculate_metric(
         Ndays = 30, 
         apply_mask = False, 
         level = None, 
+        alpha = 0.95,
         path = 'test_data'
-        ) -> list:
+        ) -> Tuple[list, np.ndarray, np.ndarray]:
     '''
     Calculate a metric performance (RMSE, MAE, MSE, or ACC) of climatology and persistence for a variable
 
@@ -42,6 +45,7 @@ def calculate_metric(
     :param Ndays: Number of days in the prediction dataset
     :param apply_mask: Boolean; Apply land-sea and aridity masks prior to metric calculations
     :param level: Pressure level index for upper air data (e.g., 0 for 200 mb data, 1 for 500 mb, etc); None if variable is not upper air
+    :param alpha: Confidence level of the bootstrapped confidence interval
     :param path: Directory path to where the true label, masks, and latitude weights are stored
 
     Outputs:
@@ -135,29 +139,49 @@ def calculate_metric(
 
         # Subset the latitude weights to the subset as variable and ytrue
         latitude_weights, _, _ = subset_data(tmp, latitude, longitude, subset)
+        latitude_weights = latitude_weights.squeeze()
+
+    # # Apply temporal block bootstrapping for autocorrelation
+    # bootstrap_indices, _ = block_bootstrap_time_indices(
+    #     variable.shape[0],
+    #     n_resamples = 5000, 
+    #     block_length = 120, # three season block length (should be >= forecast_length to reduce overlap)
+    #     method = "circular",
+    #     time_axis = 0,
+    # )
 
     # Calculate the metric
-    var_metric = []
+
     # Perform the calculation for each time step in variable
+    var_metric = []
     for t in range(variable.shape[0]):
-        # Calcualte acc
+        # resample_ind = bootstrap_indices[:,t]
+        # resample_ind = resample_ind[:,np.newaxis]
+        # resample_ind[1] = t
+        # Calcualte ACC
         if metric == 'acc':
             var_metric.append(calculate_acc(variable[t,:,:], ytrue[t,:,:], 
-                                            latitude_weights = latitude_weights))
+                                            latitude_weights = latitude_weights, axis = (-1, -2)))
         # Calculate MAE
         elif metric == 'mae':
             var_metric.append(calculate_mae(variable[t,:,:], ytrue[t,:,:], 
-                                            latitude_weights = latitude_weights))
+                                            latitude_weights = latitude_weights, axis = (-1, -2)))
         # Calculate MSE
         elif metric == 'mse':
             var_metric.append(calculate_mse(variable[t,:,:], ytrue[t,:,:], 
-                                            latitude_weights = latitude_weights))
+                                            latitude_weights = latitude_weights, axis = (-1, -2)))
         # Calculate RMSE
         elif metric == 'rmse':
             var_metric.append(calculate_rmse(variable[t,:,:], ytrue[t,:,:], 
-                                             latitude_weights = latitude_weights))
+                                                latitude_weights = latitude_weights, axis = (-1, -2)))
+
+    var_metric = np.array(var_metric)
     
-    return var_metric
+    # Calcualte confidence intervals
+    # metric_high, metric_low = np.percentile(var_metric, [100 * (1 + alpha) / 2, 100 * (1 - alpha) / 2], axis = 1)
+    
+    return var_metric # np.mean(var_metric, axis = 1), metric_high, metric_lowx
+
 
 def calculate_acc(
         pred, 

@@ -222,6 +222,7 @@ def load_metrics(
         rotation_years, 
         subset = None, 
         forecast_length = 90, 
+        block_bootstrap = False,
         path_to_data = './results', 
         paths_to_rotation = {0: './results/rotation_00', 'single_run': '../results/upsampling'}# '../results/one_experiment_run'}
         ) -> Tuple[dict, dict, dict]:
@@ -234,6 +235,7 @@ def load_metrics(
     :param rotation_years: Dictionary where each key is a rotation, each entry containing a list of years contained within the given rotation
     :param subset: Name of the subset region being loaded (e.h., africa, nh, conus, etc.)
     :param forecast_length: Number of days in the forecasts loaded (e.g., 90 for a 90-day forecast)
+    :param block_bootstrap: Indicates whether block bootstrapping was done during metric calculations; add the high and low confidence intervals to metric_list
     :param path_to_data: Directory path pointing to where the metric data is pointing (has climatology and persistence directories for those metrics)
     :param paths_to_rotation: Dictionary with keys of rotation numbers or 'one_experiment_run', each entry is a directory path to the model performance metrics
 
@@ -292,7 +294,8 @@ def load_metrics(
                 clim_files = glob('%s/climatology/rotation_%02d/clim_*.nc'%(path_to_data, rot), recursive = True)
                 persist_files = glob('%s/persistence/rotation_%02d/persist_*.nc'%(path_to_data, rot), recursive = True)
         else:
-            files = glob('%s/*T00Z_%s.csv'%(data_path, subset), recursive = True)
+            # Note only metric calculations on subsets get block bootstraps at present
+            files = glob('%s/*T00Z_%s_block_bootstrap.csv'%(data_path, subset), recursive = True) if block_bootstrap else glob('%s/*T00Z_%s.csv'%(data_path, subset), recursive = True)
             # Special case for the final run which uses 2020 and 2021 for test years
             if rot == 'single_run':
                 clim_files = np.concatenate([
@@ -367,14 +370,24 @@ def load_metrics(
 
         # Convert dictionary information of a variable and metric into arrays of size N_forecasts x forecast_length
         metric_list[metric] = []
+        if block_bootstrap:
+            metric_list[f"{metric}_high"] = []
+            metric_list[f"{metric}_low"] = []
         clim_list[metric] = []
         persist_list[metric] = []
         for key in metrics.keys():
+            # Bootstrapped metrics have high and low confidence intervals not in the initial set
+            if block_bootstrap: 
+                metric_list[f"{metric}_high"].append(metrics[key][f'{metric}_high'])
+                metric_list[f"{metric}_low"].append(metrics[key][f'{metric}_low'])
+            
             # Get the metric (each list entry has length forecast_length)
             metric_list[metric].append(metrics[key][metric])
             clim_list[metric].append(climatology[key][metric])
             persist_list[metric].append(persistence[key][metric])
 
+    # Use a new for loop to capture all variables, including high and low confidence intervals
+    for metric in metric_list.keys():
         # Turn the lists into arrays (they will stack along axis = 0, to give the shape N_forecasts x forecast_length)
         metric_list[metric] = np.array(metric_list[metric])
         clim_list[metric] = np.array(clim_list[metric])

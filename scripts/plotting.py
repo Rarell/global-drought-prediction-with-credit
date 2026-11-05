@@ -202,7 +202,11 @@ def plot_metric(
         month = 6, 
         year = 2018, 
         add_variation = False, 
+        variation = None,
         anom = False,
+        additional_plots = None,
+        additional_plot_labels = None,
+        additional_plot_colors = None,
         path = './Figures/', 
         savename = 'timeseries.png'
         ) -> None:
@@ -224,7 +228,11 @@ def plot_metric(
     :param month: Int; month the forecast was initialized on (used for title information)
     :param year: Int; year the forecast was initialized on (used for title information)
     :param add_variation: Boolean; Add shading indicating variation in metric skill (ndim of metric must be 2)
+    :param variation: 2D Tuple giving lower and upper bounds of the plotted variation respectively. If None, defaults to 1 std dev of metric.
     :param anom: Boolean; Indicates whether the metric is for climate anomalies
+    :param additional_plots: Tuple of additional lines to plot if desired
+    :param additional_plot_labels: Tuple of legend labels for eachadditional plot
+    :param additional_plot_colors: Tuple of line colors for each additional plot
     :param path: Directory path to where the plot will be saved
     :param savename: Filename of the figure when saved
     '''
@@ -245,7 +253,7 @@ def plot_metric(
         metric_average = metric
 
     # Determine the standard deviation of metric if necessary
-    if add_variation:
+    if add_variation & (variation is None):
         metric_std = np.nanstd(metric, axis = 0)
 
     # Initialize the figure
@@ -277,8 +285,12 @@ def plot_metric(
 
     # Add the shading for standard deviation if specified
     if add_variation:
-        ax.fill_between(lead_time, metric_average, metric_average + metric_std, color = 'grey', alpha = 0.5)
-        ax.fill_between(lead_time, metric_average, metric_average - metric_std, color = 'grey', alpha = 0.5)
+        if variation is None:
+            ax.fill_between(lead_time, metric_average, metric_average + variation[1], color = 'grey', alpha = 0.5)
+            ax.fill_between(lead_time, metric_average, metric_average - variation[0], color = 'grey', alpha = 0.5)
+        else:
+            ax.fill_between(lead_time, metric_average, metric_average + metric_std, color = 'grey', alpha = 0.5)
+            ax.fill_between(lead_time, metric_average, metric_average - metric_std, color = 'grey', alpha = 0.5)
 
     # Plot climatology if designated
     if climatology is not None:
@@ -302,8 +314,19 @@ def plot_metric(
         #                     np.nanmean(persistence, axis = 0) - np.nanstd(persistence, axis = 0), 
         #                     color = 'b', alpha = 0.5)
 
+    if additional_plots is not None:
+        if (additional_plot_labels is None) | (additional_plot_colors is None):
+            print("additional_plot_labels and additional_plot_colors must be provided to make additional plots")
+
+        elif (len(additional_plot_labels) != len(additional_plots)) | (len(additional_plot_labels) != len(additional_plots)):
+            print("additional_plot_labels and additional_plot_colors must be the same length as additional_plots")
+        
+        else:
+            for n, line in enumerate(additional_plots):
+                ax.plot(lead_time, line, color = additional_plot_colors[n], linewidth = 2.5, label = additional_plot_labels[n])
+
     # Add a legend if climatology and/or persistence was plotted
-    if (climatology is not None) | (persistence is not None):
+    if (climatology is not None) | (persistence is not None) | (additional_plots is not None):
         ax.legend(fontsize = 18)
         
     # Add labels

@@ -27,6 +27,7 @@ from matplotlib import colorbar as mcolorbar
 from metric_calculations import calculate_metric, calculate_rpc, calculate_acc_in_space, calculate_rmse_in_space
 from fd_calculations import calculate_climatology, calculate_sm_percentiles, calculate_sesr, calculate_fdii, christian_fd, yuan_fd
 from data_loading import load_climatology, load_persistence, load_metrics
+from temporal_bootstrapping import block_bootstrap_time_indices
 from utils import subset_data, get_metric_information, new_sort
 from plotting import (
     plot_metric,
@@ -108,7 +109,9 @@ path_to_rotation = {
     9: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_09/',
     10: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_10/',
     11: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_11/',
-    'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/one_experiment_run/'# '/ourdisk/hpc/ai2es/sedris/results/one_experiment_run/'
+    'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/one_experiment_run/',# '/ourdisk/hpc/ai2es/sedris/results/one_experiment_run/'
+    'swin': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/vit_model/',
+    'unet': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/unet_model/',
 }
 
 # Test years to load for each corresponding rotation
@@ -125,7 +128,9 @@ test_years = {
     9: [2017, 2018],
     10: [2019, 2020],
     11: [2021, 2022],
-    'single_run': [2020, 2021]
+    'single_run': [2020, 2021],
+    'unet': [2020, 2021],
+    'swin': [2020, 2021],
 }
 
 def make_climatology_and_persistence_metrics(args, timestamp) -> None:
@@ -287,6 +292,278 @@ def make_climatology_and_persistence_metrics(args, timestamp) -> None:
                 nc.variables[key][:] = persistence_metrics[key][:]
 
 
+def calculate_metric_bootstrap(args):
+    from config import INPUT_VARIABLE_NAMES as var_names
+    from metric_calculations import calculate_acc, calculate_mae, calculate_mse, calculate_rmse
+
+    # Add FD labels to the list of var names so that they get processed into a single file as well...
+    fd_labels = ['sesr', 'fdii1', 'fdii2', 'fdii3', 'fdii4', 'sesr_fd', 'sm_fd1', 'sm_fd2', 'sm_fd3', 'sm_fd4', 'fdii1', 'fdii2', 'fdii3', 'fdii4']
+    for label in fd_labels:
+        var_names.append(label)
+
+    # var_ind = 1
+    var = var_names[args.variable_index]
+
+    alpha = 0.95
+    
+    # For increased generality, determine the rotation from the timestamp
+    if args.single_experiment_run:
+        if args.additional_model == "unet":
+            rot = 'unet'
+        elif args.additional_model == "vit":
+            rot = 'swin'
+        else:
+            rot = 'single_run'
+    else:
+        for key in test_years.keys():
+            if timestamp.year in test_years[key]:
+                rot = key
+    
+    # Obtain the path to a set of performance metric data that is known to exist
+    path = path_to_rotation[rot]
+    forecast_length = 90 # Preset forecast length
+
+    # Apply aridity and land-sea masks
+    if args.apply_mask:
+        # Load the masks
+        # with Dataset('%s/aridity_mask.nc'%path, 'r') as nc:
+        with Dataset('%s/aridity_mask_reduced.nc'%args.data_path, 'r') as nc:
+            # ai_mask = nc.variables['aim'][:,:-1,:] # Note the aridity mask also masks out the oceans
+            ai_mask = nc.variables['aim'][:]
+        
+        # with Dataset('%s/land.nc'%path, 'r') as nc:
+        with Dataset('%s/land_reduced.nc'%args.data_path, 'r') as nc:
+            # lsm_mask = nc.variables['lsm'][:,:-1,:] # Includes other sea points not in the aridity mask (e.g., Great Lakes)
+            lsm_mask = nc.variables['lsm'][:]
+
+    # Load the latitude weights
+    with Dataset('%s/lat_and_lons.nc'%args.data_path, 'r') as nc:
+        #tmp = nc.variables['coslat'][:]
+        latitude = nc.variables['latitude'][:]
+        longitude = nc.variables['longitude'][:]
+        tmp = nc.variables['latitude'][:]
+        tmp = np.cos(tmp*np.pi/180)
+        tmp = tmp/np.nanmean(tmp)
+
+    # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
+    latitude_weights = np.ones((latitude.shape[0], longitude.shape[-1]))
+    for j in range(latitude_weights.shape[-1]):
+        latitude_weights[:,j] = tmp
+
+    if args.subset is not None:
+        latitude_weights, _, _ = subset_data(latitude_weights, latitude, longitude, args.subset)
+        latitude_weights = latitude_weights.squeeze()
+
+    # Determine pressure level if needed
+    var_name_parts = var.split('_')
+    if var_name_parts[0] in upper_air_variables:
+        var = f'{var_name_parts[0]}_{var_name_parts[1]}' if var_name_parts[0] == 'q' else var_name_parts[0]
+        if var_name_parts[-1] == '200mb':
+            level = 0
+        elif var_name_parts[-1] == '500mb':
+            level = 1
+    else:
+        level = None
+
+    label = var if level is None else f'{var}_{level}'
+
+    # Collect all the file names for the predictions
+    # date_str = timestamp.strftime('%Y-%m-%dT%HZ')
+    directories = glob('%s/forecasts/*'%(path), recursive = True)
+    directories = np.sort(directories)[:-1] # Exclude the metrics directory
+    
+    if os.path.exists(f"{path}/{label}_forecasts_{args.subset}.nc"):
+        with Dataset(f"{path}/{label}_forecasts_{args.subset}.nc", "r") as nc:
+            y_pred = nc.variables[var][:]
+            pred_times_str = nc.variables["forecast_times"][:]
+
+            T, forecast_length, I, J = y_pred.shape
+            pred_times = np.empty((T, forecast_length), dtype = datetime)
+            for t in range(T):
+                for fh in range(forecast_length):
+                    pred_times[t,fh] = datetime.fromisoformat(str(pred_times_str[t,fh]))
+            
+    else:
+        y_pred = []
+        pred_times = []
+        for direct in tqdm(directories, desc = "Loading and subsetting dataset"):
+            files = glob('%s/pred_*.nc'%(direct), recursive = True)
+
+            files_sorted = new_sort(files)
+        
+            # Loop through predictions files
+            forecast = []
+            forecast_times = []
+            for n, file in enumerate(files_sorted):
+                # Load the predictions
+                with Dataset(file, 'r') as nc:
+                    time_pred = nc.variables['time'][:]
+                    time_pred = datetime(1900,1,1) + timedelta(hours = time_pred.item())
+                    forecast_times.append(time_pred)
+
+                    # Load in data and subset it
+                    if var in skip_variables:
+                        # Skip the description variables
+                        continue
+                    else:
+                        # Load data
+                        dataset = nc.variables[var][:].squeeze() if level is None else nc.variables[var][:,level,:].squeeze()
+
+                        # Apply mask
+                        if args.apply_mask:
+                            # Apply the masks
+                            dataset = np.where(ai_mask == 1, dataset, np.nan)
+                            dataset = np.where(lsm_mask == 1, dataset, np.nan)
+
+                        if args.subset is not None:
+                            # Subset data here to reduce RAM usage
+                            dataset, _, _ = subset_data(dataset, latitude, longitude, args.subset)
+
+                        forecast.append(dataset)
+            
+            pred_times.append(np.array(forecast_times)) # shape forecast_length
+            y_pred.append(np.array(forecast)) # shape (forecast_length, I, J)
+
+        pred_times = np.stack(pred_times) # shape (T, forecast_length)
+        y_pred = np.stack(y_pred) # shape (T, forecast_length, I, J)
+        print(pred_times.shape, y_pred.shape)
+
+        with Dataset(f"{path}/{label}_forecasts_{args.subset}.nc", "w") as nc:
+            T, forecast_length, I, J = y_pred.shape
+
+            pred_times_str = np.empty((T, forecast_length), dtype = "U16")
+            for t in range(T):
+                for fh in range(forecast_length):
+                    pred_times_str[t,fh] = pred_times[t,fh].isoformat()
+
+            nc.createDimension("time", size = T)
+            nc.createDimension("forecast_length", size = forecast_length)
+            nc.createDimension("lat", size = I)
+            nc.createDimension("lon", size = J)
+
+            nc.createVariable("forecast_times", pred_times_str.dtype, ("time", "forecast_length"))
+            nc.variables["forecast_times"][:] = pred_times_str[:]
+
+            nc.createVariable(var, y_pred.dtype, ("time", "forecast_length", "lat", "lon"))
+            nc.variables[var][:] = y_pred[:]
+    
+    # Load true labels
+    print("Loading true labels")
+
+    # Obtain the type of data for the variable (i.e., which zarr file the true label is in)
+    if var in diagnostic_variables:
+        data_type = 'diagnostic'
+    elif var in upper_air_variables:
+        data_type = 'upper_air'
+    elif var_ind >= 27:
+        data_type = 'categorical'
+    else:
+        data_type = 'surface'
+        
+    root = [
+        zarr.open_group('%s/%s.%04d.zarr/'%(args.data_path, data_type, test_years[rot][0])),
+        zarr.open_group('%s/%s.%04d.zarr/'%(args.data_path, data_type, test_years[rot][1])),
+        zarr.open_group('%s/%s.%04d.zarr/'%(args.data_path, data_type, test_years[rot][1]+1)),
+    ]
+
+    ytrue = np.concatenate([root[0][var][:], root[1][var][:], root[2][var][:]]) if level is None else np.concatenate([root[0][var][:,level,:], root[1][var][:,level,:], root[2][var][:,level,:]])
+    times = [root[0]['time'][:], root[1]['time'][:], root[2]['time'][:]] 
+    times = [pd.to_datetime(times[0]).to_numpy(dtype = datetime), pd.to_datetime(times[1]).to_numpy(dtype = datetime), pd.to_datetime(times[2]).to_numpy(dtype = datetime)]
+    times = np.concatenate(times)
+
+    if args.apply_mask:
+        # Apply the masks
+        ytrue = np.where(ai_mask == 1, ytrue, np.nan)
+        ytrue = np.where(lsm_mask == 1, ytrue, np.nan)
+
+    if args.subset is not None:
+        # Subset true labels
+        ytrue, _, _ = subset_data(ytrue, latitude, longitude, args.subset)
+
+    # Apply temporal block bootstrapping for autocorrelation
+    bootstrap_indices, _ = block_bootstrap_time_indices(
+        y_pred.shape[0],
+        n_resamples = 1000, 
+        block_length = forecast_length, # block length equal to forecast length
+        method = "circular",
+        time_axis = 0,
+    )
+
+    var_metric = {} # 
+    for t in tqdm(range(y_pred.shape[0]), desc = f"Calculating metrics"):
+        # Construct the filename for performance metrics
+        timestamp = pred_times[t,0]
+        subset_filename = '%04d-%02d-%02dT00Z_%s_%s_block_bootstrap.csv'%(timestamp.year, timestamp.month, timestamp.day, label, args.subset)
+
+        for metric_name in ['acc', 'rmse', 'mse', 'mae']:
+            # var_metric[f'{metric_name}_{label}'] = []
+            # var_metric[f'{metric_name}_high_{label}'] = []
+            # var_metric[f'{metric_name}_low_{label}'] = []
+            # var_metric_resample = []
+
+            var_metric[f'{metric_name}_{label}'] = []
+            var_metric[f'{metric_name}_{label}_high'] = []
+            var_metric[f'{metric_name}_{label}_low'] = []
+
+
+            resample_ind = bootstrap_indices[:,t]
+            resample_ind = resample_ind[:,np.newaxis]
+            resample_ind_pred = resample_ind
+            resample_ind = np.repeat(resample_ind, forecast_length, axis = -1)
+            resample_ind[1] = list(np.arange(t, t+forecast_length))
+            resample_ind_pred[1] = t
+
+            if metric_name == 'acc':
+                var_metric[f'{metric_name}_{label}'] = calculate_acc(y_pred[t,:], ytrue[t:t+forecast_length,:], 
+                                                latitude_weights = latitude_weights, axis = (-1, -2))
+                var_metric_resample = calculate_acc(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                                                latitude_weights = latitude_weights, axis = (-1, -2))
+            # Calculate MAE
+            elif metric_name == 'mae':
+                var_metric[f'{metric_name}_{label}'] = calculate_mae(y_pred[t,:], ytrue[t:t+forecast_length,:], 
+                                                latitude_weights = latitude_weights, axis = (-1, -2))
+                var_metric_resample = calculate_mae(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                                                latitude_weights = latitude_weights, axis = (-1, -2))
+            # Calculate MSE
+            elif metric_name == 'mse':
+                var_metric[f'{metric_name}_{label}'] = calculate_mse(y_pred[t,:], ytrue[t:t+forecast_length,:], 
+                                                latitude_weights = latitude_weights, axis = (-1, -2))
+                var_metric_resample = calculate_mse(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                                                latitude_weights = latitude_weights, axis = (-1, -2))
+            # Calculate RMSE
+            elif metric_name == 'rmse':
+                var_metric[f'{metric_name}_{label}'] = calculate_rmse(y_pred[t,:], ytrue[t:t+forecast_length,:], 
+                                                    latitude_weights = latitude_weights, axis = (-1, -2))
+                var_metric_resample = calculate_rmse(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                                                latitude_weights = latitude_weights, axis = (-1, -2))
+
+            # Resample variables should have shape (n_resample, forecast_length)
+            var_metric[f'{metric_name}_{label}_high'], var_metric[f'{metric_name}_{label}_low'] = np.percentile(var_metric_resample, [100 * (1 + alpha) / 2, 100 * (1 - alpha) / 2], axis = 0)
+
+        # Convert the dictionary to a pandas df to write to the same csv format as the original metric files
+        metrics_df = pd.DataFrame(var_metric)
+
+        # Write the metrics to csv files
+        metrics_df.to_csv('%s/cache/%s/%s'%(path, args.subset, subset_filename), index = True, mode = 'w')
+
+        # var_metric[f'{metric_name}_{label}'] = np.array(var_metric[f'{metric_name}_{label}']) # Shape (T, forecast_length)
+        # var_metric_resample = np.array(var_metric_resample) # shape (T, n_sample, forecast_length)
+
+        # var_metric[f'{metric_name}_high_{label}'], var_metric[f'{metric_name}_low_{label}'] = np.percentile(var_metric, [100 * (1 + alpha) / 2, 100 * (1 - alpha) / 2], axis = 1)
+
+    # # Convert the dictionary to a pandas df to write to the same csv format as the original metric files
+    # metrics_df = pd.DataFrame(var_metric)
+
+    # # Write the metrics to csv files
+    # metrics_df.to_csv('%s/forecasts/metrics/block_bootstrapped_%s'%(path, subset_filename), index = True)
+        
+    # Load all predictions (for one variable?)
+    # Resample indices
+    # Calculate metric for all samples
+    # Write results with confidence intervals
+    return
+
+
 def make_subset_metrics(args, timestamp) -> None:
     '''
     Calculate performance metrics, same as what CREDIT performs, for individual subsetted regions for 
@@ -300,21 +577,26 @@ def make_subset_metrics(args, timestamp) -> None:
 
     # For increased generality, determine the rotation from the timestamp
     if args.single_experiment_run:
-        rot = 'single_run'
+        if args.additional_model == "unet":
+            rot = 'unet'
+        elif args.additional_model == "vit":
+            rot = 'swin'
+        else:
+            rot = 'single_run'
     else:
         for key in test_years.keys():
             if timestamp.year in test_years[key]:
                 rot = key
     
     # Obtain the path to a set of performance metric data that is known to exist
-    path = path_to_rotation[0]
+    path = path_to_rotation[rot]
     forecast_length = 90 # Preset forecast length
 
     # Construct the filename for performance metrics
     subset_filename = '%04d-%02d-%02dT00Z_%s.csv'%(timestamp.year, timestamp.month, timestamp.day, args.subset)
 
     # Initial list metrics; load in a test set of metrics that is known to exist
-    metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(path, test_years[0][0]), sep = ',',
+    metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(path, test_years[rot][0]), sep = ',',
     # metrics_initial = pd.read_csv('%s/forecasts/metrics/2020-01-01T00Z.csv'%(path_to_rotation[rot]), sep = ',',
                                   header = 0, index_col = 0, nrows = forecast_length) # Read 90 rows for all forecasts 
 
@@ -401,23 +683,28 @@ def make_subset_metrics(args, timestamp) -> None:
             tmp = y_subset_pred[var_name]
 
         # Perform the metric calculation based on the subsetted region
-        metric_calculation = calculate_metric(tmp, 
-                                              metric_name, 
-                                              var_name,
-                                              timestamp.year, 
-                                              timestamp.month, 
-                                              timestamp.day, 
-                                              data_type, 
-                                              subset = args.subset, 
-                                              Ndays = forecast_length, 
-                                              apply_mask = args.apply_mask,
-                                              level = level, 
-                                              path = args.data_path)
+        metric_calculation = calculate_metric(
+            tmp, 
+            metric_name, 
+            var_name,
+            timestamp.year, 
+            timestamp.month, 
+            timestamp.day, 
+            data_type, 
+            subset = args.subset, 
+            Ndays = forecast_length, 
+            apply_mask = args.apply_mask,
+            level = level, 
+            alpha = 0.95,
+            path = args.data_path,
+        )
         
         metric_calculation = np.array(metric_calculation)
 
         # Add the metric to the final dictionary
         metrics_subset[metric] = metric_calculation
+        # metrics_subset[f"{metric}_high"] = metric_high
+        # metrics_subset[f"{metric}_low"] = metric_low
 
     # Convert the dictionary to a pandas df to write to the same csv format as the original metric files
     metrics_subset_df = pd.DataFrame(metrics_subset)
@@ -1363,10 +1650,13 @@ def make_case_study_plots(
     imageio.mimsave('%s/%s'%(args.figure_path, sname), anomaly_images, format = 'FFMPEG')
 
 
-def _determine_classification_metrics(true, pred, metrics_ts, metrics_space, leniency = None):
+def _determine_classification_metrics(true, pred, metrics_ts, metrics_space, fd_label, leniency = None, latitude_weights = 1, block_bootstrap = False, alpha = None):
     """
     Calculate classification metrics and save them to a set of dictionaries
     """
+
+    if block_bootstrap & (alpha is None):
+        raise("alpha must be sepcified if bootstrapped samples are provided")
 
     ### Determine hits, misses, false alarms, and true misses
     if leniency is None:
@@ -1395,11 +1685,11 @@ def _determine_classification_metrics(true, pred, metrics_ts, metrics_space, len
         tn = np.stack(tn)
 
 
-    # Make sure NaNs are still applied
-    tp = np.where(np.isnan(true) | np.isnan(pred), np.nan, tp)
-    fn = np.where(np.isnan(true) | np.isnan(pred), np.nan, fn)
-    fp = np.where(np.isnan(true) | np.isnan(pred), np.nan, fp)
-    tn = np.where(np.isnan(true) | np.isnan(pred), np.nan, tn)
+    # Make sure NaNs are still applied and apply latitude weights here as part of determining contingency table
+    tp = np.where(np.isnan(true) | np.isnan(pred), np.nan, tp) * latitude_weights
+    fn = np.where(np.isnan(true) | np.isnan(pred), np.nan, fn) * latitude_weights
+    fp = np.where(np.isnan(true) | np.isnan(pred), np.nan, fp) * latitude_weights
+    tn = np.where(np.isnan(true) | np.isnan(pred), np.nan, tn) * latitude_weights
 
     # Calculate classification metrics (accuracy, recall, precision, FAR, POD, F1-score)
     hits_random = (tp + fn) * (tp + fp) / N
@@ -1416,163 +1706,191 @@ def _determine_classification_metrics(true, pred, metrics_ts, metrics_space, len
     # Initialize the dictionary entries if necessary
     metrics_list = ['accuracy', 'recall', 'precision', 'far', 'f1_score', 'pod', 'csi', 'ets']
     for metric in metrics_list:
-        if '%s_%s'%(fd_label, metric) not in metrics_ts.keys():
-            metrics_ts['%s_%s'%(fd_label, metric)] = []
-        if '%s_%s'%(fd_label, metric) not in metrics_space.keys():
-            metrics_space['%s_%s'%(fd_label, metric)] = np.zeros((forecast_length, I, J))
+        if block_bootstrap:
+            if '%s_%s_high'%(fd_label, metric) not in metrics_ts.keys():
+                metrics_ts['%s_%s_high'%(fd_label, metric)] = []
+            if '%s_%s_low'%(fd_label, metric) not in metrics_ts.keys():
+                metrics_ts['%s_%s_low'%(fd_label, metric)] = []
+        else:
+            if '%s_%s'%(fd_label, metric) not in metrics_ts.keys():
+                metrics_ts['%s_%s'%(fd_label, metric)] = []
+            if '%s_%s'%(fd_label, metric) not in metrics_space.keys():
+                metrics_space['%s_%s'%(fd_label, metric)] = np.zeros((forecast_length, I, J))
 
     # Make time series
-    metrics_ts['%s_%s'%(fd_label, 'accuracy')].append(np.nanmean(accuracy, axis = (-1, -2)))
-    metrics_ts['%s_%s'%(fd_label, 'recall')].append(np.nanmean(recall, axis = (-1, -2)))
-    metrics_ts['%s_%s'%(fd_label, 'precision')].append(np.nanmean(precision, axis = (-1, -2)))
-    metrics_ts['%s_%s'%(fd_label, 'far')].append(np.nanmean(far, axis = (-1, -2)))
-    metrics_ts['%s_%s'%(fd_label, 'pod')].append(np.nanmean(pod, axis = (-1, -2)))
-    metrics_ts['%s_%s'%(fd_label, 'f1_score')].append(np.nanmean(f1_score, axis = (-1, -2)))
-    metrics_ts['%s_%s'%(fd_label, 'csi')].append(np.nanmean(csi, axis = (-1, -2)))
-    metrics_ts['%s_%s'%(fd_label, 'ets')].append(np.nanmean(ets, axis = (-1, -2)))
+    if block_bootstrap:
+        # Note the averages will have shape (n_resample, T)
+        ts = [
+             np.nanmean(accuracy, axis = (-1, -2)),  # Accuracy
+             np.nanmean(recall, axis = (-1, -2)),    # Recall
+             np.nanmean(precision, axis = (-1, -2)), # Precision
+             np.nanmean(far, axis = (-1, -2)),       # FAR
+             np.nanmean(pod, axis = (-1, -2)),       # POD
+             np.nanmean(f1_score, axis = (-1, -2)),  # F1-score
+             np.nanmean(csi, axis = (-1, -2)),       # CSI
+             np.nanmean(ets, axis = (-1, -2)),       # ETS
+        ]
 
-    # Make spatial averages of metrics
-    metrics_space['%s_%s'%(fd_label, 'accuracy')] += accuracy
-    metrics_space['%s_%s'%(fd_label, 'recall')] += recall
-    metrics_space['%s_%s'%(fd_label, 'precision')] += precision
-    metrics_space['%s_%s'%(fd_label, 'far')] += far
-    metrics_space['%s_%s'%(fd_label, 'pod')] += pod
-    metrics_space['%s_%s'%(fd_label, 'f1_score')] += f1_score
-    metrics_space['%s_%s'%(fd_label, 'csi')] += csi
-    metrics_space['%s_%s'%(fd_label, 'ets')] += ets
+        for n, metric in enumerate(metrics_list):
+            # Make the confidence intervals
+            high, low = np.percentile(ts[n], [100 * (1 + alpha) / 2, 100 * (1 - alpha) / 2], axis = 0)
+
+            # Append the confidence interval
+            metrics_ts['%s_%s_high'%(fd_label, metric)].append(high)
+            metrics_ts['%s_%s_low'%(fd_label, metric)].append(low)
+
+    else:
+        metrics_ts['%s_%s'%(fd_label, 'accuracy')].append(np.nanmean(accuracy, axis = (-1, -2)))
+        metrics_ts['%s_%s'%(fd_label, 'recall')].append(np.nanmean(recall, axis = (-1, -2)))
+        metrics_ts['%s_%s'%(fd_label, 'precision')].append(np.nanmean(precision, axis = (-1, -2)))
+        metrics_ts['%s_%s'%(fd_label, 'far')].append(np.nanmean(far, axis = (-1, -2)))
+        metrics_ts['%s_%s'%(fd_label, 'pod')].append(np.nanmean(pod, axis = (-1, -2)))
+        metrics_ts['%s_%s'%(fd_label, 'f1_score')].append(np.nanmean(f1_score, axis = (-1, -2)))
+        metrics_ts['%s_%s'%(fd_label, 'csi')].append(np.nanmean(csi, axis = (-1, -2)))
+        metrics_ts['%s_%s'%(fd_label, 'ets')].append(np.nanmean(ets, axis = (-1, -2)))
+
+        # Make spatial averages of metrics
+        metrics_space['%s_%s'%(fd_label, 'accuracy')] += accuracy
+        metrics_space['%s_%s'%(fd_label, 'recall')] += recall
+        metrics_space['%s_%s'%(fd_label, 'precision')] += precision
+        metrics_space['%s_%s'%(fd_label, 'far')] += far
+        metrics_space['%s_%s'%(fd_label, 'pod')] += pod
+        metrics_space['%s_%s'%(fd_label, 'f1_score')] += f1_score
+        metrics_space['%s_%s'%(fd_label, 'csi')] += csi
+        metrics_space['%s_%s'%(fd_label, 'ets')] += ets
 
 
 def _make_classification_plots(
-            metrics_ts, lead_times, 
-            metrics_space, lat, lon, 
-            fd_label, 
-            subset, 
-            metrics_list, 
-            metrics_names, 
-            full_names, 
-            figure_path, 
-            fd_type = 'standard'
-            ):
-            """
-            Make plots of classification metrics
+    metrics_ts, lead_times, 
+    metrics_space, lat, lon, 
+    fd_label, 
+    subset, 
+    metrics_list, 
+    metrics_names, 
+    full_names, 
+    figure_path, 
+    fd_type = 'standard'
+    ):
+    """
+    Make plots of classification metrics
 
-            Needs metrics_lists, metrics_names, full_names
-            """
+    Needs metrics_lists, metrics_names, full_names
+    """
 
-            metrics = [
-                metrics_ts['%s_accuracy'%fd_label],
-                metrics_ts['%s_recall'%fd_label],
-                metrics_ts['%s_precision'%fd_label],
-                metrics_ts['%s_far'%fd_label],
-                metrics_ts['%s_f1_score'%fd_label],
-            ]
+    metrics = [
+        metrics_ts['%s_accuracy'%fd_label],
+        metrics_ts['%s_recall'%fd_label],
+        metrics_ts['%s_precision'%fd_label],
+        metrics_ts['%s_far'%fd_label],
+        metrics_ts['%s_f1_score'%fd_label],
+    ]
 
-            title = full_names[fd_label] if subset is None else '%s for %s'%(full_names[fd_label], subset)
-            if fd_type == 'standard':
-                filename = 'fd_classification_ts_%s.png'%fd_label if subset is None else '%s_fd_classification_ts_%s.png'%(subset, fd_label)
-                filename_csi = 'fd_classification_threat_scores_ts_%s.png'%fd_label if subset is None else '%s_fd_classification_threat_scores_ts_%s.png'%(subset, fd_label)
-            elif fd_type == 'onset':
-                filename = 'fd_onset_classification_ts_%s.png'%fd_label if subset is None else '%s_fd_onset_classification_ts_%s.png'%(subset, fd_label)
-                filename_csi = 'fd_onset_classification_threat_scores_ts_%s.png'%fd_label if subset is None else '%s_fd_onset_classification_threat_scores_ts_%s.png'%(subset, fd_label)
-            elif fd_type == 'termination':
-                filename = 'fd_termination_classification_ts_%s.png'%fd_label if subset is None else '%s_fd_termination_classification_ts_%s.png'%(subset, fd_label)
-                filename_csi = 'fd_termination_classification_threat_scores_ts_%s.png'%fd_label if subset is None else '%s_fd_termination_classification_threat_scores_ts_%s.png'%(subset, fd_label)
+    title = full_names[fd_label] if subset is None else '%s for %s'%(full_names[fd_label], subset)
+    if fd_type == 'standard':
+        filename = 'fd_classification_ts_%s.png'%fd_label if subset is None else '%s_fd_classification_ts_%s.png'%(subset, fd_label)
+        filename_csi = 'fd_classification_threat_scores_ts_%s.png'%fd_label if subset is None else '%s_fd_classification_threat_scores_ts_%s.png'%(subset, fd_label)
+    elif fd_type == 'onset':
+        filename = 'fd_onset_classification_ts_%s.png'%fd_label if subset is None else '%s_fd_onset_classification_ts_%s.png'%(subset, fd_label)
+        filename_csi = 'fd_onset_classification_threat_scores_ts_%s.png'%fd_label if subset is None else '%s_fd_onset_classification_threat_scores_ts_%s.png'%(subset, fd_label)
+    elif fd_type == 'termination':
+        filename = 'fd_termination_classification_ts_%s.png'%fd_label if subset is None else '%s_fd_termination_classification_ts_%s.png'%(subset, fd_label)
+        filename_csi = 'fd_termination_classification_threat_scores_ts_%s.png'%fd_label if subset is None else '%s_fd_termination_classification_threat_scores_ts_%s.png'%(subset, fd_label)
 
-            # Make time series plot
-            plot_classification_metrics(
-                metrics, 
-                lead_times,
-                metrics_names[:5],
-                title,
-                colors = ['k', 'r', 'b', 'darkgreen', 'orange'],
-                add_variation = False,
-                path = figure_path, 
-                savename = filename,
-            )
+    # Make time series plot
+    plot_classification_metrics(
+        metrics, 
+        lead_times,
+        metrics_names[:5],
+        title,
+        colors = ['k', 'r', 'b', 'darkgreen', 'orange'],
+        add_variation = False,
+        path = figure_path, 
+        savename = filename,
+    )
 
-            metrics = [
-                metrics_ts['%s_csi'%fd_label],
-                metrics_ts['%s_ets'%fd_label],
-            ]
+    metrics = [
+        metrics_ts['%s_csi'%fd_label],
+        metrics_ts['%s_ets'%fd_label],
+    ]
 
-            # Make time series plot of CSI and ETS
-            plot_classification_metrics(
-                metrics, 
-                lead_times,
-                metrics_names[-2:],
-                title,
-                colors = ['r', 'b'],
-                add_variation = False,
-                path = figure_path, 
-                savename = filename_csi,
-            )
+    # Make time series plot of CSI and ETS
+    plot_classification_metrics(
+        metrics, 
+        lead_times,
+        metrics_names[-2:],
+        title,
+        colors = ['r', 'b'],
+        add_variation = False,
+        path = figure_path, 
+        savename = filename_csi,
+    )
 
-            # Make maps of FD classification maps
-            for metric, metric_name in zip(metrics_list, metrics_names):
-                # print(metric)
-                if fd_type == 'standard':
-                    filename_1day  = 'africa_%s_classification_%s_1_day_forecast_map.png'%(fd_label, metric)
-                    filename_30day = 'africa_%s_classification_%s_30_day_forecast_map.png'%(fd_label, metric)
-                    filename_60day = 'africa_%s_classification_%s_60_day_forecast_map.png'%(fd_label, metric)
-                    filename_90day = 'africa_%s_classification_%s_90_day_forecast_map.png'%(fd_label, metric)
-                elif fd_type == 'onset':
-                    filename_1day  = 'africa_%s_onset_classification_%s_1_day_forecast_map.png'%(fd_label, metric)
-                    filename_30day = 'africa_%s_onset_classification_%s_30_day_forecast_map.png'%(fd_label, metric)
-                    filename_60day = 'africa_%s_onset_classification_%s_60_day_forecast_map.png'%(fd_label, metric)
-                    filename_90day = 'africa_%s_onset_classification_%s_90_day_forecast_map.png'%(fd_label, metric)
-                elif fd_type == 'termination':
-                    filename_1day  = 'africa_%s_termination_classification_%s_1_day_forecast_map.png'%(fd_label, metric)
-                    filename_30day = 'africa_%s_termination_classification_%s_30_day_forecast_map.png'%(fd_label, metric)
-                    filename_60day = 'africa_%s_termination_classification_%s_60_day_forecast_map.png'%(fd_label, metric)
-                    filename_90day = 'africa_%s_termination_classification_%s_90_day_forecast_map.png'%(fd_label, metric)
+    # Make maps of FD classification maps
+    for metric, metric_name in zip(metrics_list, metrics_names):
+        # print(metric)
+        if fd_type == 'standard':
+            filename_1day  = 'africa_%s_classification_%s_1_day_forecast_map.png'%(fd_label, metric)
+            filename_30day = 'africa_%s_classification_%s_30_day_forecast_map.png'%(fd_label, metric)
+            filename_60day = 'africa_%s_classification_%s_60_day_forecast_map.png'%(fd_label, metric)
+            filename_90day = 'africa_%s_classification_%s_90_day_forecast_map.png'%(fd_label, metric)
+        elif fd_type == 'onset':
+            filename_1day  = 'africa_%s_onset_classification_%s_1_day_forecast_map.png'%(fd_label, metric)
+            filename_30day = 'africa_%s_onset_classification_%s_30_day_forecast_map.png'%(fd_label, metric)
+            filename_60day = 'africa_%s_onset_classification_%s_60_day_forecast_map.png'%(fd_label, metric)
+            filename_90day = 'africa_%s_onset_classification_%s_90_day_forecast_map.png'%(fd_label, metric)
+        elif fd_type == 'termination':
+            filename_1day  = 'africa_%s_termination_classification_%s_1_day_forecast_map.png'%(fd_label, metric)
+            filename_30day = 'africa_%s_termination_classification_%s_30_day_forecast_map.png'%(fd_label, metric)
+            filename_60day = 'africa_%s_termination_classification_%s_60_day_forecast_map.png'%(fd_label, metric)
+            filename_90day = 'africa_%s_termination_classification_%s_90_day_forecast_map.png'%(fd_label, metric)
 
-                # 1 day forecast map
-                plot_map(
-                    metrics_space['%s_%s'%(fd_label, metric)][0,:,:], 
-                    lat_sub, lon_sub, 
-                    metric_name,
-                    title = '%s for %s'%(metric_name, full_names[fd_label]),
-                    cmin = 0,
-                    cmax = 1,
-                    path = figure_path, 
-                    savename = filename_1day,
-                )
+        # 1 day forecast map
+        plot_map(
+            metrics_space['%s_%s'%(fd_label, metric)][0,:,:], 
+            lat, lon, 
+            metric_name,
+            title = '%s for %s'%(metric_name, full_names[fd_label]),
+            cmin = 0,
+            cmax = 1,
+            path = figure_path, 
+            savename = filename_1day,
+        )
 
-                # 30 day forecast map
-                plot_map(
-                    metrics_space['%s_%s'%(fd_label, metric)][29,:,:], 
-                    lat_sub, lon_sub, 
-                    metric_name,
-                    title = '%s for %s'%(metric_name, full_names[fd_label]),
-                    cmin = 0,
-                    cmax = 1,
-                    path = figure_path, 
-                    savename = filename_30day,
-                )
+        # 30 day forecast map
+        plot_map(
+            metrics_space['%s_%s'%(fd_label, metric)][29,:,:], 
+            lat, lon, 
+            metric_name,
+            title = '%s for %s'%(metric_name, full_names[fd_label]),
+            cmin = 0,
+            cmax = 1,
+            path = figure_path, 
+            savename = filename_30day,
+        )
 
-                # 60 day forecast map
-                plot_map(
-                    metrics_space['%s_%s'%(fd_label, metric)][59,:,:], 
-                    lat_sub, lon_sub, 
-                    metric_name,
-                    title = '%s for %s'%(metric_name, full_names[fd_label]),
-                    cmin = 0,
-                    cmax = 1,
-                    path = figure_path, 
-                    savename = filename_60day,
-                )
+        # 60 day forecast map
+        plot_map(
+            metrics_space['%s_%s'%(fd_label, metric)][59,:,:], 
+            lat, lon, 
+            metric_name,
+            title = '%s for %s'%(metric_name, full_names[fd_label]),
+            cmin = 0,
+            cmax = 1,
+            path = figure_path, 
+            savename = filename_60day,
+        )
 
-                # 90 day forecast map
-                plot_map(
-                    metrics_space['%s_%s'%(fd_label, metric)][89,:,:], 
-                    lat_sub, lon_sub, 
-                    metric_name,
-                    title = '%s for %s'%(metric_name, full_names[fd_label]),
-                    cmin = 0,
-                    cmax = 1,
-                    path = figure_path, 
-                    savename = filename_90day,
-                )
+        # 90 day forecast map
+        plot_map(
+            metrics_space['%s_%s'%(fd_label, metric)][89,:,:], 
+            lat, lon, 
+            metric_name,
+            title = '%s for %s'%(metric_name, full_names[fd_label]),
+            cmin = 0,
+            cmax = 1,
+            path = figure_path, 
+            savename = filename_90day,
+        )
 
 
 if __name__ == '__main__':
@@ -1581,9 +1899,12 @@ if __name__ == '__main__':
     parser = ArgumentParser(description=description, fromfile_prefix_chars='@')
     parser.add_argument('--rotations', type = int, default = -1, help = 'Number of rotations to use in the analysis. -1 gets all rotations')
     parser.add_argument('--single_experiment_run', action = 'store_true', help = 'Makle results based on a single rotation/experiment with test years of 2020 and 2021')
+    parser.add_argument('--additional_model', type = str, default = 'none', help = 'Evaluate a U-net or ViT (SWin) model if desired')
     parser.add_argument('-var', '--variable', type = str, default = 'soil moisture 1', help = 'Full variable name of the variable being plotted in the case study')
     parser.add_argument('--subset', type = str, default = 'none', help = 'Subset the data to a given region before calculating metrics')
     parser.add_argument('--apply_mask', action = 'store_true', help = 'Apply land-sea and aridity masks to certain variables')
+    parser.add_argument('--block_bootstrap', action = 'store_true', help = 'Apply block bootstrapping along the time axis for metric calculations')
+    parser.add_argument('--variable_index', type = int, default = 0, help = 'Index of variable to apply block bootstrap for when making subset metrics')
     parser.add_argument('--case_study_start_date', type = str, default = '2020-03-01', help = 'Start date of the case study to examine (must be in a format pd.to_datetime can read)')
 
     # Pathing arguments
@@ -1615,7 +1936,12 @@ if __name__ == '__main__':
         years = np.array([2020, 2021])
 
         # Rotation for a single experiment
-        rotations = ['single_run']
+        if args.additional_model == 'unet':
+            rotations = ['unet']
+        elif args.additional_model == 'vit':
+            rotations = ['swin']
+        else:
+            rotations = ['single_run']
     else:
 
         # Get all the rotations to use in the analysis
@@ -1698,19 +2024,22 @@ if __name__ == '__main__':
             assert "--make_subset_metrics cannot be run when --subset is None"
 
         print('Calculating performance metrics for a subset region')
-        if args.nprocesses > 1:
-            # Make the subset metrics for multiple timestamps simultaneously via multiprocessing
-
-            # Set the function parameters
-            param_args = [(args, timestamp) for timestamp in rotation_dates]
-
-            # Use multiprocessing to make multiple subset metrics
-            with mp.Pool(args.nprocesses) as pool:
-                    data = pool.starmap(make_subset_metrics, param_args)
+        if args.block_bootstrap:
+            calculate_metric_bootstrap(args)
         else:
-            # Make the subset metrics one timestamp at a time
-            for timestamp in tqdm(rotation_dates):
-                make_subset_metrics(args, timestamp)
+            if args.nprocesses > 1:
+                # Make the subset metrics for multiple timestamps simultaneously via multiprocessing
+
+                # Set the function parameters
+                param_args = [(args, timestamp) for timestamp in rotation_dates]
+
+                # Use multiprocessing to make multiple subset metrics
+                with mp.Pool(args.nprocesses) as pool:
+                        data = pool.starmap(make_subset_metrics, param_args)
+            else:
+                # Make the subset metrics one timestamp at a time
+                for timestamp in tqdm(rotation_dates):
+                    make_subset_metrics(args, timestamp)
 
 
     # Initial list of metrics metrics; load in a test set of metrics that is known to exist
@@ -1724,16 +2053,67 @@ if __name__ == '__main__':
 
     # Load performance calculations in time and forecast day if any of the plots using them will be made
     if args.make_performance_plots | args.make_score_cards:
-        metric_list, clim_list, persist_list = load_metrics(rotations, 
-                                                            all_dates, 
-                                                            test_years, 
-                                                            subset = args.subset, 
-                                                            forecast_length = forecast_length, 
-                                                            path_to_data = args.prediction_path, 
-                                                            paths_to_rotation = path_to_rotation)
+        if args.block_bootstrap:
+            from functools import reduce
+            # Gather and merge all files into one
+            for timestamp in all_dates:
+                filenames = '%04d-%02d-%02dT00Z_*_%s_block_bootstrap.csv'%(timestamp.year, timestamp.month, timestamp.day, args.subset)
+                dfs = []
+                files = glob("%s/cache/%s/%s"%(rotation_path, args.subset, filenames), recursive = True)
+                for file in files:
+                    dfs.append([
+                        pd.read_csv(file, sep = ',',
+                                    # names = metrics_initial.columns, 
+                                    index_col = 0, 
+                                    header = 0,
+                                    nrows = forecast_length)
+                    ])
+                
+                # Merge the dataframes into one
+                df = reduce(lambda x, y: pd.merge(x, y), dfs)
+                # Check the full dataframe
+                print(df)
+
+                # Now write the data frame a normal file load_metrics typically reads
+                filename = '%04d-%02d-%02dT00Z_%s_block_bootstrap.csv'%(timestamp.year, timestamp.month, timestamp.day, args.subset)
+                df.to_csv('%s/forecasts/metrics/%s'%(rotation_path, filename), index = True, mode = 'w')
+
+        metric_list, clim_list, persist_list = load_metrics(
+            rotations, 
+            all_dates, 
+            test_years, 
+            subset = args.subset, 
+            forecast_length = forecast_length, 
+            block_bootstrap = args.block_bootstrap,
+            path_to_data = args.prediction_path, 
+            paths_to_rotation = path_to_rotation,
+        )
+
 
     # Make performance plots if requested
     if args.make_performance_plots:
+        # Load a U-net and ViT model for comparison
+        metric_unet, _, _ = load_metrics(
+            ['unet'], 
+            all_dates, 
+            test_years, 
+            subset = args.subset, 
+            forecast_length = forecast_length, 
+            block_bootstrap = False, # args.block_bootstrap,
+            path_to_data = args.prediction_path, 
+            paths_to_rotation = path_to_rotation,
+        )
+
+        metric_vit, _, _ = load_metrics(
+            ['swin'], 
+            all_dates, 
+            test_years, 
+            subset = args.subset, 
+            forecast_length = forecast_length, 
+            block_bootstrap = False, # args.block_bootstrap,
+            path_to_data = args.prediction_path, 
+            paths_to_rotation = path_to_rotation,
+        )
 
         # Make the plots for each variable and performance metric
         for metric in metrics_initial.columns:
@@ -1828,13 +2208,31 @@ if __name__ == '__main__':
             metric_plot = metric_list[metric]
             clim_plot = clim_list[metric]
             persist_plot = persist_list[metric]
+            u_net_plot = metric_unet[metric]
+            vit_plot = metric_vit[metric]
+
+            if args.block_bootstrap:
+                metric_plot_high = metric_list[f"{metric}_high"]
+                metric_plot_low = metric_list[f"{metric}_low"]
 
             # Make the first set of performance plots
             savename = '%s_in_forecast_hour.png'%metric if args.subset is None else '%s_%s_in_forecast_hour.png'%(args.subset, metric)
-            plot_metric(metric_plot, fh, metric_name, plot_sname, 
-                        climatology = clim_plot, persistence = persist_plot,
-                        month = None, year = None, add_variation = True,
-                        path = args.figure_path, savename = savename)
+            plot_metric(
+                metric_plot, 
+                fh, 
+                metric_name, 
+                plot_sname, 
+                climatology = clim_plot, 
+                persistence = persist_plot,
+                month = None, year = None, 
+                add_variation = True,
+                variation = (metric_plot_low, metric_plot_high) if args.block_bootstrap else None,
+                additional_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0)),
+                additional_plot_labels = ("U-Net", "SWin"),
+                additional_plot_colors = ("darkgreen", "darkmagenta"),
+                path = args.figure_path, 
+                savename = savename,
+            )
             
             # Average over all NH spring and summer predictions
             ind = np.where( (months >= 3) & (months <= 8) )[0]
@@ -1845,13 +2243,31 @@ if __name__ == '__main__':
             metric_plot = metric_list[metric][ind,:]
             clim_plot = clim_list[metric][ind,:]
             persist_plot = persist_list[metric][ind,:]
+            u_net_plot = metric_unet[metric][ind,:]
+            vit_plot = metric_vit[metric][ind,:]
+
+            if args.block_bootstrap:
+                metric_plot_high = metric_list[f"{metric}_high"][ind,:]
+                metric_plot_low = metric_list[f"{metric}_low"][ind,:]
 
             # Make the second set of performance plots for summer months
             savename = '%s_summer_in_forecast_hour.png'%metric if args.subset is None else '%s_%s_summer_in_forecast_hour.png'%(args.subset, metric)
-            plot_metric(metric_plot, fh, metric_name, plot_sname, 
-                        climatology = clim_plot, persistence = persist_plot,
-                        month = 6, year = None, add_variation = True,
-                        path = args.figure_path, savename = savename)
+            plot_metric(
+                metric_plot, 
+                fh, 
+                metric_name, 
+                plot_sname, 
+                climatology = clim_plot, 
+                persistence = persist_plot,
+                month = 6, year = None, 
+                add_variation = True,
+                variation = (metric_plot_low, metric_plot_high) if args.block_bootstrap else None,
+                additional_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0)),
+                additional_plot_labels = ("U-Net", "SWin"),
+                additional_plot_colors = ("darkgreen", "darkmagenta"),
+                path = args.figure_path, 
+                savename = savename,
+            )
 
             # Average over all NH fall and winter predictions
             ind = np.where( (months >= 9) | (months <= 2) )[0]
@@ -1862,13 +2278,31 @@ if __name__ == '__main__':
             metric_plot = metric_list[metric][ind,:]
             clim_plot = clim_list[metric][ind,:]
             persist_plot = persist_list[metric][ind,:]
+            u_net_plot = metric_unet[metric][ind,:]
+            vit_plot = metric_vit[metric][ind,:]
+
+            if args.block_bootstrap:
+                metric_plot_high = metric_list[f"{metric}_high"][ind,:]
+                metric_plot_low = metric_list[f"{metric}_low"][ind,:]
 
             # Make the final set of performance plots for winter months
             savename = '%s_winter_in_forecast_hour.png'%metric if args.subset is None else '%s_%s_winter_in_forecast_hour.png'%(args.subset, metric)
-            plot_metric(metric_plot, fh, metric_name, plot_sname, 
-                        climatology = clim_plot, persistence = persist_plot,
-                        month = 12, year = None, add_variation = True,
-                        path = args.figure_path, savename = savename)
+            plot_metric(
+                metric_plot, 
+                fh, 
+                metric_name, 
+                plot_sname, 
+                climatology = clim_plot, 
+                persistence = persist_plot,
+                month = 12, year = None, 
+                add_variation = True,
+                variation = (metric_plot_low, metric_plot_high) if args.block_bootstrap else None,
+                additional_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0)),
+                additional_plot_labels = ("U-Net", "SWin"),
+                additional_plot_colors = ("darkgreen", "darkmagenta"),
+                path = args.figure_path, 
+                savename = savename,
+            )
             
     # Score card calculations
     if args.make_score_cards:
@@ -1897,9 +2331,12 @@ if __name__ == '__main__':
     if args.make_variation_plots:
         make_variation_plots(args)
        
+    # Build separate section for block bootsrapping, and load in all at once, perform classification, then metrics with block bootstrapping...
+
     # Make categorical metric plots of identified FD predictions
     if args.make_fd_metrics:
-        lat = lon = None
+        # Note args.apply_mask is never used here because masks should already have been applied during the FD calculation step
+        lat = None; lon = None
 
         # For increased generality, determine the rotation from the timestamp
         if args.single_experiment_run:
@@ -1913,7 +2350,8 @@ if __name__ == '__main__':
         path = path_to_rotation[rot]
 
         # FD labels
-        fd_labels = ['sesr_fd', 'sm_fd1', 'sm_fd2', 'sm_fd3', 'sm_fd4', 'fdii1', 'fdii2', 'fdii3', 'fdii4']
+        # fd_labels = ['sesr_fd', 'sm_fd1', 'sm_fd2', 'sm_fd3', 'sm_fd4', 'fdii1', 'fdii2', 'fdii3', 'fdii4']
+        fd_labels = ['sm_fd2', ]
 
         # Collect all the file names for the predictions
         # date_str = timestamp.strftime('%Y-%m-%dT%HZ')
@@ -1948,6 +2386,20 @@ if __name__ == '__main__':
             for fd_label in fd_labels:
                 true[fd_label].append(root[fd_label][:])
 
+        # Load the latitude weights
+        with Dataset('%s/lat_and_lons.nc'%args.data_path, 'r') as nc:
+            #tmp = nc.variables['coslat'][:]
+            latitude = nc.variables['latitude'][:]
+            longitude = nc.variables['longitude'][:]
+            tmp = nc.variables['latitude'][:]
+            tmp = np.cos(tmp*np.pi/180)
+            tmp = tmp/np.nanmean(tmp)
+
+        # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
+        latitude_weights = np.ones((lat.shape[0], lat.shape[1]))
+        for j in range(latitude_weights.shape[-1]):
+            latitude_weights[:,j] = tmp
+
         # Concatenate the true labels into full arrays and subset if necessary
         dates_true = np.concatenate(dates_true)
         for fd_label in fd_labels:
@@ -1955,15 +2407,17 @@ if __name__ == '__main__':
 
             # Reduce to subset region
             if args.subset is not None:
-                true[fd_label], lat_sub, lon_sub = subset_data(true[fd_label], lat, lon, args.subset)
+                true[fd_label], lat_sub, lon_sub = subset_data(true[fd_label], lat[:,0], lon[0,:], args.subset)
+                latitude_weights, _, _ = subset_data(latitude_weights, lat[:,0], lon[0,:], args.subset)
             else:
                 lat_sub = lat; lon_sub = lon
 
-        print(true['sesr_fd'].shape)
+        # print(true['sesr_fd'].shape)
+        print(true['sm_fd2'].shape)
         print(dates_true.shape)
 
         # Reverse latitude so plotting is the correct orientation
-        lat_sub = lat_sub[::-1,:]
+        lat_sub = lat_sub[::-1]
 
         # Load and process FD predictions
         print('Loading prediction data and making classification metrics')
@@ -1973,79 +2427,174 @@ if __name__ == '__main__':
         metrics_onset_space = {}
         metrics_term_ts = {}
         metrics_term_space = {}
-        N = len(directories[:366])
-        for directory in new_sort(directories)[:366]:
-            print(directory)
-            files = glob('%s/pred_*.nc'%(directory), recursive = True)
-            files_sorted = new_sort(files)
 
-            # Load FD labels
-            data = {}
-            dates_pred = []
-            for file in files_sorted:
-                with Dataset(file, 'r') as nc:
-                    # Get the time label
-                    time_pred = nc.variables['time'][:]
-                    time_pred = datetime(1900,1,1) + timedelta(hours = time_pred.item())
-                    dates_pred.append(time_pred)
-
-                    # Get the lat and lon if they are not already loaded
-                    if lat is None:
-                        lat = nc.variables['latitude'][:]
-                    if lon is None:
-                        lon = nc.variables['longitude'][:]
-
-                    for fd_label in fd_labels:
-                        if fd_label not in data.keys():
-                            data[fd_label] = []
-
-                        data[fd_label].append(nc.variables[fd_label][:].squeeze().astype(np.float32))
-                    
-            dates_pred = np.array(dates_pred)
-            for fd_label in fd_labels:
-                # Dataset now has a shape forecast_length x lat x lon
-                data[fd_label] = np.stack(data[fd_label])
-
-                # Reduce to subset region
-                if args.subset is not None:
-                    data[fd_label], lat_sub, lon_sub = subset_data(data[fd_label], lat, lon, args.subset)
+        N = len(directories)
+        if args.block_bootstrap:
+            # data = {}
+            
+            # Load full dataset
+            print("Loading forecasts")
+            for label in fd_labels:
+                if np.invert(os.path.exists(f"{path}/{label}_forecasts_{args.subset}.nc")):
+                    raise Exception(f"full forecast dataset must be created as and stored as {path}/{label}_forecasts_{args.subset}.nc to block bootstrap.")
                 else:
-                    lat_sub = lat; lon_sub = lon
+                    with Dataset(f"{path}/{label}_forecasts_{args.subset}.nc", "r") as nc:
+                        data = nc.variables[label][:]
+                        pred_times_str = nc.variables["forecast_times"][:]
 
-                tmp = np.where(data[fd_label] == 0, np.nan, data[fd_label])
-                forecast_length, I, J = data[fd_label].shape
-                print(fd_label, np.nansum(tmp))
+                        T, forecast_length, I, J = data.shape
+                        pred_times = np.empty((T, forecast_length), dtype = datetime)
+                        for t in range(T):
+                            for fh in range(forecast_length):
+                                pred_times[t,fh] = datetime.fromisoformat(str(pred_times_str[t,fh]))
 
-                # data[fd_label].append(data_tmp[fd_label])
-
-            ### Make classifications
-
-            # Determine overlapping dates
-            ind = np.where( (dates_true >= dates_pred[0]) & (dates_true <= dates_pred[-1]) )[0]
-
-            for fd_label in fd_labels:
-                true_labels = true[fd_label][ind,:,:]
-                pred = data[fd_label]
+                # Block bootstrap resampling indices
+                bootstrap_indices, _ = block_bootstrap_time_indices(
+                    data.shape[0],
+                    n_resamples = 1000, 
+                    block_length = forecast_length, # block length equal to forecast length
+                    method = "circular",
+                    time_axis = 0,
+                )
 
                 # Determine where FD onset and termination occurs
-                true_onset = np.zeros((forecast_length, I, J))
-                true_term  = np.zeros((forecast_length, I, J))
-                pred_onset = np.zeros((forecast_length, I, J))
-                pred_term  = np.zeros((forecast_length, I, J))
-                for t in range(pred.shape[0]-1):
-                    true_onset[t,:,:] = np.where( (true_labels[t,:,:] == 0) & (true_labels[t+1,:,:] >= 1), 1, 0)
-                    true_term[t,:,:]  = np.where( (true_labels[t,:,:] >= 1) & (true_labels[t+1,:,:] == 0), 1, 0)
-                    pred_onset[t,:,:] = np.where( (pred[t,:,:] == 0) & (pred[t+1,:,:] >= 1), 1, 0)
-                    pred_term[t,:,:]  = np.where( (pred[t,:,:] >= 1) & (pred[t+1,:,:] == 0), 1, 0)
+                true_onset = np.where( (true[label][:-1,:,:] == 0) & (true[label][1:,:,:] >= 1), 1, 0)
+                true_term  = np.where( (true[label][:-1,:,:] >= 1) & (true[label][1:,:,:] == 0), 1, 0)
+                pred_onset = np.where( (data[:,:-1,:,:] == 0) & (data[:,1:,:,:] >= 1), 1, 0)
+                pred_term  = np.where( (data[:,:-1,:,:] >= 1) & (data[:,1:,:,:] == 0), 1, 0)
+                # Append 0s to the end to make them have forecast_length = 90
+                pred_onset = np.concatenate([pred_onset, np.zeros((T, 1, I, J))], axis = 1)
+                pred_term = np.concatenate([pred_term, np.zeros((T, 1, I, J))], axis = 1)
 
-                ### Determine hits, misses, false alarms, and true misses
-                _determine_classification_metrics(true_labels, pred, metrics_ts, metrics_space)
+                # To minimize RAM usage, perform tasks 1 forecast at a time
+                for t in tqdm(range(T), desc = "Calculating metrics"):
+                    # Determine overlapping dates
+                    ind = np.where( (dates_true >= pred_times[t,0]) & (dates_true <= pred_times[t,-1]) )[0]
 
-                ### Determine metrics for FD onset
-                _determine_classification_metrics(true_onset, pred_onset, metrics_onset_ts, metrics_onset_space, leniency = 5)
+                    # true_onset = np.zeros((forecast_length, I, J))
+                    # true_term  = np.zeros((forecast_length, I, J))
+                    # pred_onset = np.zeros((forecast_length, I, J))
+                    # pred_term  = np.zeros((forecast_length, I, J))
 
-                ### Determine metrics for FD termination
-                _determine_classification_metrics(true_term, pred_term, metrics_term_ts, metrics_term_space, leniency = 5)
+                    # true_labels = true[label][ind,:,:]
+    
+                    # for t_pred in range(data[fd_label].shape[1]-1):
+                    #     true_onset[t_pred,:,:] = np.where( (true_labels[t_pred,:,:] == 0) & (true_labels[t_pred+1,:,:] >= 1), 1, 0)
+                    #     true_term[t_pred,:,:]  = np.where( (true_labels[t_pred,:,:] >= 1) & (true_labels[t_pred+1,:,:] == 0), 1, 0)
+                    #     pred_onset[t_pred,:,:] = np.where( (data[label][t,t_pred,:,:] == 0) & (data[label][t,t_pred+1,:,:] >= 1), 1, 0)
+                    #     pred_term[t_pred,:,:]  = np.where( (data[label][t,t_pred,:,:] >= 1) & (data[label][t,t_pred+1,:,:] == 0), 1, 0)
+
+                    # Collect the measured metrics
+                    ### Determine hits, misses, false alarms, and true misses
+                    _determine_classification_metrics(true[label][ind,:,:], data[t,:,:,:], metrics_ts, metrics_space, label, latitude_weights = latitude_weights)
+    
+                    ### Determine metrics for FD onset
+                    _determine_classification_metrics(true_onset[ind,:,:], pred_onset[t,:,:,:], metrics_onset_ts, metrics_onset_space, label, leniency = 5, latitude_weights = latitude_weights)
+    
+                    ### Determine metrics for FD termination
+                    _determine_classification_metrics(true_term[ind,:,:], pred_term[t,:,:,:], metrics_term_ts, metrics_term_space, label, leniency = 5, latitude_weights = latitude_weights)
+
+                    ##### Use resamples to collect the measured metrics confidence intervals
+
+                    resample_ind = bootstrap_indices[:,t]
+                    resample_ind = resample_ind[:,np.newaxis]
+                    resample_ind_pred = resample_ind
+                    resample_ind = np.repeat(resample_ind, forecast_length, axis = -1)
+                    resample_ind[1] = list(np.arange(t, t+forecast_length))
+                    resample_ind_pred[1] = t
+
+                    ### Determine hits, misses, false alarms, and true misses
+                    _determine_classification_metrics(
+                        true[label][resample_ind,:,:], 
+                        data[resample_ind_pred,:,:,:].squeeze(), 
+                        metrics_ts, metrics_space, label, latitude_weights = latitude_weights, block_bootstrap = True, alpha = 0.95)
+    
+                    ### Determine metrics for FD onset
+                    _determine_classification_metrics(
+                        true_onset[resample_ind,:,:], 
+                        pred_onset[resample_ind_pred,:,:,:].squeeze(), 
+                        metrics_onset_ts, metrics_onset_space, label, leniency = 5, latitude_weights = latitude_weights, block_bootstrap = True, alpha = 0.95)
+    
+                    ### Determine metrics for FD termination
+                    _determine_classification_metrics(
+                        true_term[resample_ind,:,:], 
+                        pred_term[resample_ind_pred,:,:,:].squeeze(), 
+                        metrics_term_ts, metrics_term_space, label, leniency = 5, latitude_weights = latitude_weights, block_bootstrap = True, alpha = 0.95)
+
+        else:
+            for directory in new_sort(directories):
+                print(directory)
+                files = glob('%s/pred_*.nc'%(directory), recursive = True)
+                files_sorted = new_sort(files)
+
+                # Load FD labels
+                data = {}
+                dates_pred = []
+                for file in files_sorted:
+                    with Dataset(file, 'r') as nc:
+                        # Get the time label
+                        time_pred = nc.variables['time'][:]
+                        time_pred = datetime(1900,1,1) + timedelta(hours = time_pred.item())
+                        dates_pred.append(time_pred)
+
+                        # Get the lat and lon if they are not already loaded
+                        if lat is None:
+                            lat = nc.variables['latitude'][:]
+                        if lon is None:
+                            lon = nc.variables['longitude'][:]
+
+                        for fd_label in fd_labels:
+                            if fd_label not in data.keys():
+                                data[fd_label] = []
+
+                            data[fd_label].append(nc.variables[fd_label][:].squeeze().astype(np.float32))
+                        
+                dates_pred = np.array(dates_pred)
+                for fd_label in fd_labels:
+                    # Dataset now has a shape forecast_length x lat x lon
+                    data[fd_label] = np.stack(data[fd_label])
+
+                    # Reduce to subset region
+                    if args.subset is not None:
+                        data[fd_label], lat_sub, lon_sub = subset_data(data[fd_label], lat, lon, args.subset)
+                    else:
+                        lat_sub = lat; lon_sub = lon
+                        lat_sub = lat_sub[::-1,:]
+
+                    tmp = np.where(data[fd_label] == 0, np.nan, data[fd_label])
+                    forecast_length, I, J = data[fd_label].shape
+                    print(fd_label, np.nansum(tmp))
+
+                    # data[fd_label].append(data_tmp[fd_label])
+
+                ### Make classifications
+
+                # Determine overlapping dates
+                ind = np.where( (dates_true >= dates_pred[0]) & (dates_true <= dates_pred[-1]) )[0]
+
+                for fd_label in fd_labels:
+                    true_labels = true[fd_label][ind,:,:]
+                    pred = data[fd_label]
+
+                    # Determine where FD onset and termination occurs
+                    true_onset = np.zeros((forecast_length, I, J))
+                    true_term  = np.zeros((forecast_length, I, J))
+                    pred_onset = np.zeros((forecast_length, I, J))
+                    pred_term  = np.zeros((forecast_length, I, J))
+                    for t in range(pred.shape[0]-1):
+                        true_onset[t,:,:] = np.where( (true_labels[t,:,:] == 0) & (true_labels[t+1,:,:] >= 1), 1, 0)
+                        true_term[t,:,:]  = np.where( (true_labels[t,:,:] >= 1) & (true_labels[t+1,:,:] == 0), 1, 0)
+                        pred_onset[t,:,:] = np.where( (pred[t,:,:] == 0) & (pred[t+1,:,:] >= 1), 1, 0)
+                        pred_term[t,:,:]  = np.where( (pred[t,:,:] >= 1) & (pred[t+1,:,:] == 0), 1, 0)
+
+                    ### Determine hits, misses, false alarms, and true misses
+                    _determine_classification_metrics(true_labels, pred, metrics_ts, metrics_space, fd_label, latitude_weights = latitude_weights)
+
+                    ### Determine metrics for FD onset
+                    _determine_classification_metrics(true_onset, pred_onset, metrics_onset_ts, metrics_onset_space, fd_label, leniency = 5, latitude_weights = latitude_weights)
+
+                    ### Determine metrics for FD termination
+                    _determine_classification_metrics(true_term, pred_term, metrics_term_ts, metrics_term_space, fd_label, leniency = 5, latitude_weights = latitude_weights)
         
         # Concatenate the time series and finish averaging the metrics in space
         for key in metrics_ts.keys():
@@ -2346,7 +2895,7 @@ if __name__ == '__main__':
                              'evaporation', 'potential_evaporation', 
                              'ndvi', 'evi', 'lai', 'fpar', 
                              'soil_moisture_1', 'soil_moisture_2', 
-                             'fdii1', 'fdii2', 
+                            #  'fdii1', 'fdii2', 
                              'sesr']
         
         if args.nprocesses > 1:
