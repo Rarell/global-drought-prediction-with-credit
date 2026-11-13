@@ -145,19 +145,19 @@ def make_climatology_and_persistence_metrics(args, timestamp) -> None:
     '''
 
     # Obtain the path to a set of performance metric data that is known to exist
-    path = path_to_rotation[0]
+    path = path_to_rotation['single_run']
     forecast_length = 90 # Preset forecast length
 
     # For increased generality, determine the rotation from the timestamp
     for key in test_years.keys():
-        if (timestamp.year in test_years[key]) & np.invert(key == 'single_run'):
+        if (timestamp.year in test_years[key]) & np.invert(key == 'single_run') & np.invert(key == 'unet') & np.invert(key == 'swin'):
             rot = key
 
     # Construct the filename for the climatology and persistence datasets
     base = '%04d-%02d-%02dT00Z.nc'%(timestamp.year, timestamp.month, timestamp.day)
     clim_filename = 'clim_%s'%base if args.subset is None else '%s_clim_%s'%(args.subset, base)
     persist_filename = 'persist_%s'%base if args.subset is None else '%s_persist_%s'%(args.subset, base)
-    print(clim_filename)
+    # print(clim_filename)
 
     if (os.path.exists('%s/climatology/rotation_%02d/%s'%(args.prediction_path, rot, clim_filename)) & 
         os.path.exists('%s/persistence/rotation_%02d/%s'%(args.prediction_path, rot, persist_filename))):
@@ -165,7 +165,7 @@ def make_climatology_and_persistence_metrics(args, timestamp) -> None:
         return
 
     # Initial list metrics; load in a test set of metrics that is known to exist
-    metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(path, test_years[0][0]), sep = ',',
+    metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(path, 2020), sep = ',',
                                   header = 0, index_col = 0, nrows = forecast_length) # Read 90 rows for all forecasts 
 
     fh = metrics_initial['forecast_step']
@@ -1943,12 +1943,13 @@ if __name__ == '__main__':
 
         # Get all the rotations to use in the analysis
         if args.rotations == -1:
-            rotations = np.arange(len(path_to_rotation) - 1)
+            rotations = np.arange(len(path_to_rotation) - 3)
         else:
             rotations = np.arange(args.rotations)
 
         # Determine all the years used in defined rotations
         years = []
+        print(rotations)
         for rot in rotations:
             year_list = test_years[rot]
             [years.append(year) for year in year_list]
