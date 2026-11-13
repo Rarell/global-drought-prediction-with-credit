@@ -13,35 +13,35 @@
 # (1) pbs script, (2) a copy of this config, (3) model weights, (4) training_log.csv
 # if save_loc does not exist, it will be created automatically
 save_loc: '/scratch/rarrell/credit_model'
-seed: 7163 # random seeed
+seed: 7689 # random seeed
 
 data:
     # upper-air variables, must be YEARLY zarr or nc with (time, level, latitude, longitude) dims
     # files must have the listed variable names 
     # upper-air variables will be normalized by the dataloader, users do not need to normalize them
     variables: ['u', 'v', 'z', 'q_tot']
-    save_loc: '/lscratch/28645959/upper_air*.zarr'
+    save_loc: '/lscratch/34880241/upper_air*.zarr'
     
     # surface variables, must be YEARLY zarr or nc with (time, latitude, longitude) dims
     # the time dimension MUST be the same as upper-air variables
     # files must have the listed variable names
     # surface variables will be normalized by the dataloader, users do not need to normalize them
     surface_variables: ['tair', 'sp', 'tp', 'd2m', 'e', 'pev']
-    save_loc_surface: '/lscratch/28645959/surface*.zarr'
+    save_loc_surface: '/lscratch/34880241/surface*.zarr'
 
     # dynamic forcing variables, must be YEARLY zarr or nc with (time, latitude, longitude) dims
     # the time dimension MUST be the same as upper-air variables
     # files must have the listed variable names
     # surface variables will be normalized by the dataloader, users do not need to normalize them
     dynamic_forcing_variables: ['ssr', 'ws', 'fg10', 'enso', 'iod']
-    save_loc_dynamic_forcing: '/lscratch/28645959/dynamic*.zarr'
+    save_loc_dynamic_forcing: '/lscratch/34880241/dynamic*.zarr'
 
     # diagnostic variables, must be YEARLY zarr or nc with (time, latitude, longitude) dims
     # the time dimension MUST be the same as upper-air variables
     # files must have the listed variable names 
     # diagnostic variables will be normalized by the dataloader, users do not need to normalize them
     diagnostic_variables: ['tp_30d', 'swvl1', 'swvl2', 'swvl3', 'swvl4', 'ndvi', 'evi', 'lai', 'fpar'] #, 'fdii1', 'fdii2', 'fdii3', 'fdii4', 'ndvi', 'evi', 'lai', 'fpar', 'sesr'] 
-    save_loc_diagnostic: '/lscratch/28645959/diagnostic*.zarr'
+    save_loc_diagnostic: '/lscratch/34880241/diagnostic*.zarr'
     
     # periodic forcing variables, must be a single zarr or nc with (time, latitude, longitude) dims
     # the time dimension should cover an entire LEAP YEAR
@@ -51,20 +51,20 @@ data:
     #
     # periodic forcing variables MUST be normalized BY USER 
     forcing_variables: ['SSR']
-    save_loc_forcing: '/lscratch/28645959/forcing.2012.zarr'
+    save_loc_forcing: '/lscratch/34880241/forcing.2012.zarr'
     
     # static variables must be a single zarr or nc with (latitude, longitude) coords
     # static variables must be normalized BY USER 
     static_variables: ['lsm', 'tvh', 'tvl', 'cvh', 'cvl'] 
-    save_loc_static: '/lscratch/28645959/static.2012.zarr'
+    save_loc_static: '/lscratch/34880241/static.2012.zarr'
 
-    save_loc_physics: '/lscratch/28645959/static.2012.zarr'
+    save_loc_physics: '/lscratch/34880241/static.2012.zarr'
 
     # z-score files, they must be zarr or nc with (level,) coords
     # they MUST include all the 
     #     'variables', 'surface_variables', 'dynamic_forcing_variables', 'diagnostic_variables' above
-    mean_path: '/lscratch/28645959/means.nc'
-    std_path: '/lscratch/28645959/stds.nc'
+    mean_path: '/lscratch/34880241/means.nc'
+    std_path: '/lscratch/34880241/stds.nc'
     
     # years to form the training / validation set [first_year, last_yeat (not covered)]
     train_years: [2001, 2018, 2022, 2025] # 2001 - 2017, 2022 - 2024
@@ -191,15 +191,15 @@ trainer:
     batches_per_epoch: 0 # Set to 0 to use len(dataloader)
     valid_batches_per_epoch: 0
     # early stopping
-    stopping_patience: 100 
+    stopping_patience: 150 
     # True: do not validate, always save weights
     skip_validation: False
     
     # total number of epochs
-    start_epoch: 120
+    start_epoch: 218
     # the trainer will stop after iterating a given number of epochs
     # this works for any start_epoch and reload_epoch: True
-    num_epoch: 220
+    num_epoch: 220 # Singlestep goes to 120; Multistep goes to 220
     # epoch is saved in the checkpot.pt, this option reads the last epoch 
     # of the previous job and continue from there
     # useful for epoch-dependent schedulers
@@ -333,7 +333,7 @@ loss:
     
     # this file is MANDATORY for the "predict" section below (inference stage)
     # the file must be nc and must contain 1D variables named "latitude" and "longitude"
-    latitude_weights: "/lscratch/28645959/lat_and_lons.nc"
+    latitude_weights: "/lscratch/34880241/lat_and_lons.nc"
 
     # use latitude weighting
     # if True, the latitude_weights file MUST have a variable named "coslat"
@@ -419,7 +419,7 @@ predict:
     #    pressure_levels: [200.0, 500.0]
     #    surface_geopotential_var: 'surface_geopotential_var'
 
-    static_fields: "/lscratch/28645959/static.2012.zarr" # Static forcing file.
+    static_fields: "/lscratch/34880241/static.2012.zarr" # Static forcing file.
 
     ua_var_encoding:
         zlib: True

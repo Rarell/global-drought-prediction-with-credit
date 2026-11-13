@@ -13,7 +13,7 @@
 # (1) pbs script, (2) a copy of this config, (3) model weights, (4) training_log.csv
 # if save_loc does not exist, it will be created automatically
 save_loc: '/scratch/rarrell/credit_model'
-seed: 7163 # random seeed
+seed: 7689 # random seeed
 
 data:
     # upper-air variables, must be YEARLY zarr or nc with (time, level, latitude, longitude) dims
@@ -191,15 +191,15 @@ trainer:
     batches_per_epoch: 0 # Set to 0 to use len(dataloader)
     valid_batches_per_epoch: 0
     # early stopping
-    stopping_patience: 100 
+    stopping_patience: 150 
     # True: do not validate, always save weights
     skip_validation: False
     
     # total number of epochs
-    start_epoch: 120
+    start_epoch: 218
     # the trainer will stop after iterating a given number of epochs
     # this works for any start_epoch and reload_epoch: True
-    num_epoch: 220
+    num_epoch: 220 # Singlestep goes to 120; Multistep goes to 220
     # epoch is saved in the checkpot.pt, this option reads the last epoch 
     # of the previous job and continue from there
     # useful for epoch-dependent schedulers
@@ -286,7 +286,7 @@ model:
             
         global_mass_fixer:
             activate: True
-            activate_outside_model: False
+            activate_outside_model: True
             simple_demo: False
             denorm: True
             grid_type: 'isobaric'
@@ -298,7 +298,7 @@ model:
 
         global_water_fixer:
             activate: True
-            activate_outside_model: False
+            activate_outside_model: True
             simple_demo: False
             denorm: True
             grid_type: 'isobaric'
