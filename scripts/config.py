@@ -57,29 +57,29 @@ INPUT_VARIABLE_SYMBOLIC_NAMES = [
 ]
 
 OUTPUT_VARIABLE_NAMES = [
-    'u_200mb', # 200 mb
-    'u_500mb', # 500 mb
-    'v_200mb', # 200 mb
-    'v_500mb', # 500 mb
-    'z_200mb', # 200 mb
-    'z_500mb', # 500 mb
-    'q_tot_200mb', # 200 mb
-    'q_tot_500mb', # 500 mb
-    'tair',
-    'sp', 
-    'tp',
-    'd2m', 
-    'e',
-    'pev',
-    'tp_30d', 
-    'swvl1',
-    'swvl2',
-    'swvl3',
-    'swvl4', 
-    'ndvi', 
-    'evi',
-    'lai',
-    'fpar',
+    'u_200mb', # 200 mb; 0
+    'u_500mb', # 500 mb; 1
+    'v_200mb', # 200 mb; 2
+    'v_500mb', # 500 mb; 3
+    'z_200mb', # 200 mb; 4
+    'z_500mb', # 500 mb; 5
+    'q_tot_200mb', # 200 mb; 6
+    'q_tot_500mb', # 500 mb; 7
+    'tair', # 8
+    'sp', # 9
+    'tp', # 10
+    'd2m', # 11
+    'e', # 12
+    'pev', # 13
+    'tp_30d', # 14
+    'swvl1', # 15
+    'swvl2', # 16
+    'swvl3', # 17
+    'swvl4', # 18
+    'ndvi', # 19
+    'evi', # 20
+    'lai', # 21
+    'fpar', # 22
 ]
 
 OUTPUT_VARIABLE_SYMBOLIC_NAMES = [

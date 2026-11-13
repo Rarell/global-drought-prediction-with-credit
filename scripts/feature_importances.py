@@ -371,7 +371,7 @@ def _write_object(obj, obj_type, outputs = None, region = None, save_path = "./"
 
         # Write the matrix and matrix related variables
         N_samples, N_features = obj.shap_values.shape
-        with Dataset(f"{save_path}/{savename}.nc", "w") as nc:
+        with Dataset(f"{save_path}/feature_importances/shapley/{savename}.nc", "w") as nc:
             nc.createDimension("n_samples", size = N_samples)
             nc.createDimension("n_features", size = N_features)
 
@@ -398,16 +398,18 @@ def _write_object(obj, obj_type, outputs = None, region = None, save_path = "./"
     
         # Construct the data frame
         obj_df = pds.DataFrame(obj_dict, index = obj.group_names)
+        obj_dir = "shapley"
     else:
         obj_dict = {
             key: item for key, item in obj.__dict__.items() if key != "variable_names"
         }
+        obj_dir = "permutation"
 
         # Construct the data frame
         obj_df = pds.DataFrame(obj_dict, index = obj.variable_names)
 
     # Save the dataframe to a csv
-    obj_df.to_csv(f"{save_path}/{savename}.csv", sep = ",")
+    obj_df.to_csv(f"{save_path}/feature_importances/{obj_dir}/{savename}.csv", sep = ",")
 
     print(savename)
     print(obj_df)
@@ -1012,7 +1014,7 @@ class _CpuPool:
     def get(self, g: int):
         b = int(np.searchsorted(self.cum, g, side="right") - 1)
         w = int(g - self.cum[b])
-        print(len(self.xs), b)
+        
         return self.xs[b][w:w + 1], self.ys[b][w:w + 1]
 
 
@@ -1207,7 +1209,7 @@ def shapley_values(
     else:
         explain_idx = rng.choice(pool.total, size=min(n_explain, pool.total), replace=False)
     all_idx = np.arange(pool.total)
-    print(pool.total)
+    # print(pool.total)
     n_channels = pool.xs[0].shape[variable_axis]
     grouped = set(i for ids in idx_lists for i in ids)
     ungrouped = [c for c in range(n_channels) if c not in grouped]
@@ -1278,7 +1280,7 @@ def shapley_values(
             b = int(rng.choice(candidates))
             # b = int(rng.integers(0, pool.total - 1))
             # b = b + 1 if b >= e else b           # any sample except e
-            print(b)
+            # print(b)
             x_b, _ = pool.get(b)
             orders = [rng.permutation(G)]
             if antithetic:
@@ -1744,7 +1746,7 @@ if __name__ == "__main__":
         # Write out the results
         _write_object(
             importances,
-            "shapely_values",
+            "shapley_values",
             outputs = args.out_channels,
             region = args.region,
             save_path = conf["save_loc"],

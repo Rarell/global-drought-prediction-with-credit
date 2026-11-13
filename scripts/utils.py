@@ -142,24 +142,28 @@ def get_metric_information(metric) -> Tuple[str, str, int]:
         metric_name = metric
         level = None
 
+        return metric_name, var_name, level
+
+    str_split = metric.split('_')
+
     # Determine if the metric is for an upper air variable
-    elif metric.split('_')[1] in upper_air_variables:
+    if str_split[1] in upper_air_variables:
         # Note q_tot gets an extra split and needs special attention to be reconstructed
-        if metric.split('_')[1] == upper_air_variables[-1]: 
-            metric_name, var1, var2, level = metric.split('_')
+        if str_split[1] == upper_air_variables[-1]: 
+            metric_name = str_split[0]; var1 = str_split[1]; var2 = str_split[2]; level = str_split[3] # = metric.split('_')
 
             # Special attention for q_tot
             var_name = var1 + '_' + var2 
         else:
             # Split metric into metric_name, var_name, and level
-            metric_name, var_name, level = metric.split('_')
+            metric_name = str_split[0]; var_name = str_split[1]; level = str_split[2] # = metric.split('_')
 
         # Make sure level is an int so it can be used as an index
         level = int(level)
 
     # Underscore variables (e.g., tp_7d, tp_14d, tp_30d) require special attention since they split into an extra entry
-    elif (metric.split('_')[1] in underscore_variables) & (len(metric.split('_')) > 2):
-        metric_name, var1, var2 = metric.split('_')
+    elif (str_split[1] in underscore_variables) & (("tot" in str_split) | ("30day" in str_split)):
+        metric_name = str_split[0]; var1 = str_split[1]; var2 = str_split[2] # = metric.split('_')
 
         # Special attention for underscore variables (note this is for non upper-air variables; level = None)
         var_name = var1 + '_' + var2
@@ -167,7 +171,7 @@ def get_metric_information(metric) -> Tuple[str, str, int]:
 
     else:
         # Split non upper air variables into metric_name and var_name (level = None for non upper-air)
-        metric_name, var_name = metric.split('_')
+        metric_name = str_split[0]; var_name = str_split[1] # = metric.split('_')
         level = None
 
     return metric_name, var_name, level

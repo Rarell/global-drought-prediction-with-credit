@@ -15,6 +15,35 @@ import torch
 from temporal_bootstrapping import block_bootstrap_time_indices
 from utils import subset_data
 
+def load_lat_weights(filename = "lat_and_lons.nc", path = "../../credit_datasets", subset = None):
+
+    # Load the latitude weights
+    with Dataset('%s/lat_and_lons.nc'%path, 'r') as nc:
+        #tmp = nc.variables['coslat'][:]
+        latitude = nc.variables['latitude'][:]
+        longitude = nc.variables['longitude'][:]
+        tmp = nc.variables['latitude'][:]
+        tmp = np.cos(tmp*np.pi/180)
+        tmp = tmp/np.nanmean(tmp)
+
+    # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
+    latitude_weights = np.ones((latitude.shape[0], longitude.shape[-1]))
+    for j in range(latitude_weights.shape[-1]):
+        latitude_weights[:,j] = tmp
+
+    # Subset data
+    if subset is not None:
+        
+        # Temporarily turn latitudes weights into 3D (which is what the subset_data assumes)
+        tmp = np.ones((1, latitude_weights.shape[0], latitude_weights.shape[1]))
+        tmp[0,:,:] = latitude_weights
+
+        # Subset the latitude weights to the subset as variable and ytrue
+        latitude_weights, _, _ = subset_data(tmp, latitude, longitude, subset)
+        latitude_weights = latitude_weights.squeeze()
+
+    return latitude_weights, latitude, longitude
+
 def calculate_metric(
         variable, 
         metric, 
@@ -94,18 +123,23 @@ def calculate_metric(
     ytrue = ytrue[ind,:,:]
 
     # Load the latitude weights
-    with Dataset('%s/lat_and_lons.nc'%path, 'r') as nc:
-        #tmp = nc.variables['coslat'][:]
-        latitude = nc.variables['latitude'][:]
-        longitude = nc.variables['longitude'][:]
-        tmp = nc.variables['latitude'][:]
-        tmp = np.cos(tmp*np.pi/180)
-        tmp = tmp/np.nanmean(tmp)
+    latitude_weights, latitude, longitude = load_lat_weights(
+        filename = "lat_and_lons.nc",
+        path = path,
+        subset = subset,
+    )
+    # with Dataset('%s/lat_and_lons.nc'%path, 'r') as nc:
+    #     #tmp = nc.variables['coslat'][:]
+    #     latitude = nc.variables['latitude'][:]
+    #     longitude = nc.variables['longitude'][:]
+    #     tmp = nc.variables['latitude'][:]
+    #     tmp = np.cos(tmp*np.pi/180)
+    #     tmp = tmp/np.nanmean(tmp)
 
     # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
-    latitude_weights = np.ones((ytrue.shape[1], ytrue.shape[2]))
-    for j in range(latitude_weights.shape[-1]):
-        latitude_weights[:,j] = tmp
+    # latitude_weights = np.ones((ytrue.shape[1], ytrue.shape[2]))
+    # for j in range(latitude_weights.shape[-1]):
+    #     latitude_weights[:,j] = tmp
 
     # Apply aridity and land-sea masks
     if apply_mask:
@@ -133,13 +167,13 @@ def calculate_metric(
         variable, _, _ = subset_data(variable, latitude, longitude, subset)
         ytrue, _, _ = subset_data(ytrue, latitude, longitude, subset)
         
-        # Temporarily turn latitudes weights into 3D (which is what the subset_data assumes)
-        tmp = np.ones((1, latitude_weights.shape[0], latitude_weights.shape[1]))
-        tmp[0,:,:] = latitude_weights
+        # # Temporarily turn latitudes weights into 3D (which is what the subset_data assumes)
+        # tmp = np.ones((1, latitude_weights.shape[0], latitude_weights.shape[1]))
+        # tmp[0,:,:] = latitude_weights
 
-        # Subset the latitude weights to the subset as variable and ytrue
-        latitude_weights, _, _ = subset_data(tmp, latitude, longitude, subset)
-        latitude_weights = latitude_weights.squeeze()
+        # # Subset the latitude weights to the subset as variable and ytrue
+        # latitude_weights, _, _ = subset_data(tmp, latitude, longitude, subset)
+        # latitude_weights = latitude_weights.squeeze()
 
     # # Apply temporal block bootstrapping for autocorrelation
     # bootstrap_indices, _ = block_bootstrap_time_indices(
@@ -205,7 +239,7 @@ def calculate_acc(
 
     # Avoids division by 0
     epsilon = 1e-7
-
+\
     # Collect deviations from the overall mean
     pred_prime = pred - np.nanmean(pred)
     yprime = ytrue - np.nanmean(ytrue)
@@ -538,7 +572,8 @@ def calculate_rmse_in_space(
 
 def calculate_rpc(
         obs, 
-        pred
+        pred,
+        latitude_weights = 1,
         ) -> float:
     '''
     Calculate the ratio of predictable components (RPC) comparing variation 
@@ -556,19 +591,36 @@ def calculate_rpc(
     :param rpc: The RPC value comparing obs and pred
     '''
 
-    # Used masked arrays to deal with NaNs
-    obs_ma = np.ma.masked_invalid(obs.flatten())
-    pred_ma = np.ma.masked_invalid(pred.flatten())
+    shape = (obs.shape[0], obs.shape[1])
+
+    if isinstance(latitude_weights, np.ndarray):
+        if latitude_weights.shape != shape:
+            latitude_weights = np.broadcast_to(latitude_weights[:, np.newaxis], shape)
+
+        lat_weights_flat = latitude_weights.flatten()
+    else:
+        # Weights is scalar in this case
+        lat_weights_flat = latitude_weights * np.ones((obs.shape)).flatten()
+
+    # # Used masked arrays to deal with NaNs
+    # obs_ma = np.ma.masked_invalid(obs.flatten())
+    # pred_ma = np.ma.masked_invalid(pred.flatten())
+    obs_flat = obs.flatten()
+    pred_flat = pred.flatten()
 
     # In comparing two variables, the covariance matrix is 2 x 2; 
     # diagonals are var(pred) and var(obs) respectively, and off diagonals are covariance of pred and obs
-    cov_met = np.ma.cov(pred_ma, obs_ma)
+    # cov_met = np.ma.cov(pred_ma, obs_ma)
+
+    # Obtain valid rows
+    valid_row = (~np.isnan(pred_flat)) & (~np.isnan(pred_flat))
+    cov_met = np.cov(pred_flat[valid_row], obs_flat[valid_row], aweights = lat_weights_flat[valid_row])
 
     # .filled returns cov_met to a np.ndarray (replaces any masked values with NaNs)
-    cov_met = cov_met.filled(np.nan)
+    # cov_met = cov_met.filled(np.nan)
 
     # Variance in the model error
-    var_e = np.nanvar(obs - pred)
+    var_e = np.nanvar((obs - pred) * latitude_weights)
 
     # Determine the correlation between model and observations
     rho = cov_met[0,1]/np.sqrt(cov_met[0,0] * cov_met[1,1])

@@ -247,14 +247,15 @@ def load_metrics(
     :param persist_list: Dictionary for each variable and metric, each entry containing an
                          array of persistence performance metrics (np.ndarray with shape N_forecasts/time x forecast_length)
     '''
-
+    
     # Initial list metrics; load in a test set of metrics that is known to exist
     if subset is None:
-        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(paths_to_rotation[0], 2021), sep = ',',
+        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z.csv'%(paths_to_rotation[rotations[0]], 2021), sep = ',',
         # metrics_initial = pd.read_csv('%s/forecasts/metrics/2020-01-01T00Z.csv'%(paths_to_rotation['single_run']), sep = ',',
                                     header = 0, index_col = 0, nrows = forecast_length) # Read forecast_length number of rows 
     else: 
-        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z_africa.csv'%(paths_to_rotation[0], 2021), sep = ',',
+        extension = "_block_bootstrap" if block_bootstrap else ""
+        metrics_initial = pd.read_csv('%s/forecasts/metrics/%04d-01-01T00Z_%s%s.csv'%(paths_to_rotation[rotations[0]], 2021, subset, extension), sep = ',',
         # metrics_initial = pd.read_csv('%s/forecasts/metrics/2020-01-01T00Z.csv'%(paths_to_rotation['single_run']), sep = ',',
                                     header = 0, index_col = 0, nrows = forecast_length) # Read forecast_length number of rows 
     
@@ -280,7 +281,7 @@ def load_metrics(
         if subset is None:
             files = glob('%s/*T00Z.csv'%(data_path), recursive = True)
             # Special case for the final run which uses 2020 and 2021 for test years
-            if rot == 'single_run':
+            if (rot == 'single_run') | (rot == 'unet') | (rot == 'swin'):
                 clim_files = np.concatenate([
                     glob('%s/climatology/rotation_10/clim_2020*.nc'%(path_to_data), recursive = True),
                     glob('%s/climatology/rotation_11/clim_2021*.nc'%(path_to_data), recursive = True)
@@ -297,7 +298,7 @@ def load_metrics(
             # Note only metric calculations on subsets get block bootstraps at present
             files = glob('%s/*T00Z_%s_block_bootstrap.csv'%(data_path, subset), recursive = True) if block_bootstrap else glob('%s/*T00Z_%s.csv'%(data_path, subset), recursive = True)
             # Special case for the final run which uses 2020 and 2021 for test years
-            if rot == 'single_run':
+            if (rot == 'single_run') | (rot == 'unet') | (rot == 'swin'):
                 clim_files = np.concatenate([
                     glob('%s/climatology/rotation_10/%s_clim_2020*.nc'%(path_to_data, subset), recursive = True),
                     glob('%s/climatology/rotation_11/%s_clim_2021*.nc'%(path_to_data, subset), recursive = True)
@@ -333,7 +334,7 @@ def load_metrics(
         for m, file in enumerate(new_sort(files)):
             # Load performance metrics for the model
             metrics[n] = pd.read_csv(file, sep = ',',
-                                    names = metrics_initial.columns, 
+                                    # names = metrics_initial.columns, 
                                     index_col = 0, 
                                     header = 0,
                                     nrows = forecast_length)
@@ -369,29 +370,33 @@ def load_metrics(
             continue
 
         # Convert dictionary information of a variable and metric into arrays of size N_forecasts x forecast_length
-        metric_list[metric] = []
-        if block_bootstrap:
-            metric_list[f"{metric}_high"] = []
-            metric_list[f"{metric}_low"] = []
-        clim_list[metric] = []
-        persist_list[metric] = []
+        if ("_high" in metric) | ("_low" in metric): # block_bootstrap:
+            metric_list[f"{metric}"] = []
+            # metric_list[f"{metric}_high"] = []
+            # metric_list[f"{metric}_low"] = []
+        else:
+            metric_list[metric] = []
+            clim_list[metric] = []
+            persist_list[metric] = []
         for key in metrics.keys():
             # Bootstrapped metrics have high and low confidence intervals not in the initial set
-            if block_bootstrap: 
-                metric_list[f"{metric}_high"].append(metrics[key][f'{metric}_high'])
-                metric_list[f"{metric}_low"].append(metrics[key][f'{metric}_low'])
-            
-            # Get the metric (each list entry has length forecast_length)
-            metric_list[metric].append(metrics[key][metric])
-            clim_list[metric].append(climatology[key][metric])
-            persist_list[metric].append(persistence[key][metric])
+            if ("_high" in metric) | ("_low" in metric): 
+                metric_list[f"{metric}"].append(metrics[key][f'{metric}'])
+            else:
+                # Get the metric (each list entry has length forecast_length)
+                metric_list[metric].append(metrics[key][metric])
+                clim_list[metric].append(climatology[key][metric])
+                persist_list[metric].append(persistence[key][metric])
 
     # Use a new for loop to capture all variables, including high and low confidence intervals
     for metric in metric_list.keys():
         # Turn the lists into arrays (they will stack along axis = 0, to give the shape N_forecasts x forecast_length)
-        metric_list[metric] = np.array(metric_list[metric])
-        clim_list[metric] = np.array(clim_list[metric])
-        persist_list[metric]= np.array(persist_list[metric])
+        if ("_high" in metric) | ("_low" in metric):
+            metric_list[metric] = np.array(metric_list[metric])
+        else:
+            metric_list[metric] = np.array(metric_list[metric])
+            clim_list[metric] = np.array(clim_list[metric])
+            persist_list[metric]= np.array(persist_list[metric])
 
     # print(metric_list.keys())
 

@@ -107,7 +107,7 @@ units = {
     'ws': r'm s$^{-1}$',
     'fg10': r'm s$^{-1}$',
     # 'swvl1': r'kg m$^{-2}$', 'swvl2': r'kg m$^{-2}$', 'swvl3': r'kg m$^{-2}$', 'swvl4': r'kg m$^{-2}$',
-    'swvl1': r'm^3 m$^{-3}$', 'swvl2': r'm^3 m$^{-3}$', 'swvl3': r'm^3 m$^{-3}$', 'swvl4': r'm^3 m$^{-3}$',
+    'swvl1': r'm$^3$ m$^{-3}$', 'swvl2': r'm$^3$ m$^{-3}$', 'swvl3': r'm$^3$ m$^{-3}$', 'swvl4': r'm$^3$ m$^{-3}$',
     'fdii1': 'unitless', 'fdii2': 'unitless', 'fdii3': 'unitless', 'fdii4': 'unitless',
     'sesr': 'unitless'
 }
@@ -286,11 +286,12 @@ def plot_metric(
     # Add the shading for standard deviation if specified
     if add_variation:
         if variation is None:
-            ax.fill_between(lead_time, metric_average, metric_average + variation[1], color = 'grey', alpha = 0.5)
-            ax.fill_between(lead_time, metric_average, metric_average - variation[0], color = 'grey', alpha = 0.5)
-        else:
             ax.fill_between(lead_time, metric_average, metric_average + metric_std, color = 'grey', alpha = 0.5)
             ax.fill_between(lead_time, metric_average, metric_average - metric_std, color = 'grey', alpha = 0.5)
+        else:
+            ax.fill_between(lead_time, metric_average, variation[1], color = 'grey', alpha = 0.5)
+            ax.fill_between(lead_time, metric_average, variation[0], color = 'grey', alpha = 0.5)
+            
 
     # Plot climatology if designated
     if climatology is not None:
@@ -1485,7 +1486,7 @@ def make_histogram_scatter_plot(
     h2d = ax['hist2d'].hist2d(ypred.flatten()[valid_indices], ytrue.flatten()[valid_indices], bins = 100, 
                               cmin = cmin+0.001, cmax = None, 
                               norm = mcolors.Normalize(vmin=cmin+1e-5, vmax = cmax, clip = True), cmap = cmap)
-    print(np.nanmin(h2d[0]), np.nanmax([h2d[0]]), np.nanmean(h2d[0]))
+    # print(np.nanmin(h2d[0]), np.nanmax([h2d[0]]), np.nanmean(h2d[0]))
 
     # Plot the ideal regression line (slope = 1, bias = 0)
     ax['hist2d'].plot([min_value, max_value], [min_value, max_value], color = 'r', linewidth = 2.5, linestyle = '-')
@@ -1609,6 +1610,9 @@ def make_metric_error_plots(
     :param figure_path: Directory path pointing to where figures will be saved
     '''
 
+    from metric_calculations import load_lat_weights
+    from utils import subset_data
+
     # Turn the time labels into an array of datetimes
     time = np.array([t.to_pydatetime() for t in time])
 
@@ -1616,14 +1620,11 @@ def make_metric_error_plots(
     time_pred = []
 
     # Load the latitude weights
-    with Dataset('%s/lat_and_lons.nc'%data_path, 'r') as nc:
-        tmp = nc.variables['latitude'][:]
-        tmp = np.cos(tmp*np.pi/180)
-
-    # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
-    latitude_weights = np.ones((ytrue.shape[1], ytrue.shape[2]))
-    for j in range(latitude_weights.shape[-1]):
-        latitude_weights[:,j] = tmp
+    latitude_weights, _, _ = load_lat_weights(
+        filename = "lat_and_lons.nc",
+        path = data_path,
+        subset = None,
+    )
 
     # Load in the predictions
     for file in new_sort(files):
@@ -1676,6 +1677,10 @@ def make_metric_error_plots(
 
             rmse = np.where(ai_mask == 1, rmse, np.nan)
             rmse = np.where(lsm_mask == 1, rmse, np.nan)
+
+        if subset is not None:
+            acc, _ ,_ = subset_data(acc, lat, lon, subset = subset)
+            rmse, _, _ = subset_data(rmse, lat, lon, subset = subset)
             
         # Make the RMSE histogram plot
         make_histogram(rmse, plot_sname, 'rmse', path = figure_path, savename = '%s_%s_rmse_histogram.png'%(subset, variable))

@@ -186,7 +186,6 @@ def plot_metric(metric, y, metric_name, var_name, climatology = None, persistenc
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
 
-
 # Function to generate maps of true labels and predictions
 def make_comparison_map(y, y_pred, climatology, lat, lon, time,
                         var_name = 'tmp', globe = True, forecast_hour = None,
@@ -884,7 +883,6 @@ def make_anomaly_subset_map(y, y_pred, lat, lon, time, subset,
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
     plt.close()
-
 
 def make_error_map(acc, rmse, lat, lon,
                    var_name = 'tmp', globe = True, 

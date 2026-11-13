@@ -24,7 +24,7 @@ import matplotlib.pyplot as plt
 from matplotlib import gridspec
 from matplotlib import colorbar as mcolorbar
 
-from metric_calculations import calculate_metric, calculate_rpc, calculate_acc_in_space, calculate_rmse_in_space
+from metric_calculations import calculate_metric, calculate_rpc, calculate_acc_in_space, calculate_rmse_in_space, load_lat_weights
 from fd_calculations import calculate_climatology, calculate_sm_percentiles, calculate_sesr, calculate_fdii, christian_fd, yuan_fd
 from data_loading import load_climatology, load_persistence, load_metrics
 from temporal_bootstrapping import block_bootstrap_time_indices
@@ -53,7 +53,7 @@ zarr.config.set({'default_zarr_format': 2})
 subsets = ['nh', 'sh', 'tropics', 'africa', 'africa_nh', 'africa_sh', 'africa_tropics', 'conus', 'south central', 'sahel', 'congo', 'eastern', 'southern']
 
 # Define all upper air and diagnostic variables (surface variables are the ones not included in these)
-upper_air_variables = ['u', 'v', 'z', 'q_tot']
+upper_air_variables = ['u', 'v', 'z', 'q_tot', 'q'] # q is to allow comparisons where the string is split by "_"
 diagnostic_variables = ['ndvi', 'evi', 'lai', 'fpar', 'swvl1', 'swvl2', 'swvl3', 'swvl4', 'fdii1', 'fdii2', 'fdii3', 'fdii4', 'sesr', 'tp_30d']
 
 # Define the variables skip in the analysis
@@ -174,7 +174,7 @@ def make_climatology_and_persistence_metrics(args, timestamp) -> None:
     climatology_metrics = {}
     persistence_metrics = {}
     print(timestamp)
-
+    
     # Perform computations for each metric and variable
     for metric in metrics_initial.columns:
         if metric in skip_variables: # These include time and forecast_step, which is what the metrics are plotted against
@@ -293,11 +293,11 @@ def make_climatology_and_persistence_metrics(args, timestamp) -> None:
 
 
 def calculate_metric_bootstrap(args):
-    from config import INPUT_VARIABLE_NAMES as var_names
+    from config import OUTPUT_VARIABLE_NAMES as var_names
     from metric_calculations import calculate_acc, calculate_mae, calculate_mse, calculate_rmse
 
     # Add FD labels to the list of var names so that they get processed into a single file as well...
-    fd_labels = ['sesr', 'fdii1', 'fdii2', 'fdii3', 'fdii4', 'sesr_fd', 'sm_fd1', 'sm_fd2', 'sm_fd3', 'sm_fd4', 'fdii1', 'fdii2', 'fdii3', 'fdii4']
+    fd_labels = ['sesr', 'fdii1', 'fdii2', 'fdii3', 'fdii4', 'sesr_fd', 'sm_fd1', 'sm_fd2', 'sm_fd3', 'sm_fd4']
     for label in fd_labels:
         var_names.append(label)
 
@@ -337,22 +337,11 @@ def calculate_metric_bootstrap(args):
             lsm_mask = nc.variables['lsm'][:]
 
     # Load the latitude weights
-    with Dataset('%s/lat_and_lons.nc'%args.data_path, 'r') as nc:
-        #tmp = nc.variables['coslat'][:]
-        latitude = nc.variables['latitude'][:]
-        longitude = nc.variables['longitude'][:]
-        tmp = nc.variables['latitude'][:]
-        tmp = np.cos(tmp*np.pi/180)
-        tmp = tmp/np.nanmean(tmp)
-
-    # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
-    latitude_weights = np.ones((latitude.shape[0], longitude.shape[-1]))
-    for j in range(latitude_weights.shape[-1]):
-        latitude_weights[:,j] = tmp
-
-    if args.subset is not None:
-        latitude_weights, _, _ = subset_data(latitude_weights, latitude, longitude, args.subset)
-        latitude_weights = latitude_weights.squeeze()
+    latitude_weights, latitude, longitude = load_lat_weights(
+        filename = "lat_and_lons.nc",
+        path = args.data_path,
+        subset = args.subset,
+    )
 
     # Determine pressure level if needed
     var_name_parts = var.split('_')
@@ -366,11 +355,12 @@ def calculate_metric_bootstrap(args):
         level = None
 
     label = var if level is None else f'{var}_{level}'
-
+    print(path)
     # Collect all the file names for the predictions
     # date_str = timestamp.strftime('%Y-%m-%dT%HZ')
     directories = glob('%s/forecasts/*'%(path), recursive = True)
     directories = np.sort(directories)[:-1] # Exclude the metrics directory
+    directories = directories[:-5] # Exclude the forecasts outside the test years
     
     if os.path.exists(f"{path}/{label}_forecasts_{args.subset}.nc"):
         with Dataset(f"{path}/{label}_forecasts_{args.subset}.nc", "r") as nc:
@@ -455,7 +445,7 @@ def calculate_metric_bootstrap(args):
         data_type = 'diagnostic'
     elif var in upper_air_variables:
         data_type = 'upper_air'
-    elif var_ind >= 27:
+    elif args.variable_index > 27:
         data_type = 'categorical'
     else:
         data_type = 'surface'
@@ -505,36 +495,34 @@ def calculate_metric_bootstrap(args):
             var_metric[f'{metric_name}_{label}_high'] = []
             var_metric[f'{metric_name}_{label}_low'] = []
 
-
             resample_ind = bootstrap_indices[:,t]
             resample_ind = resample_ind[:,np.newaxis]
-            resample_ind_pred = resample_ind
-            resample_ind = np.repeat(resample_ind, forecast_length, axis = -1)
-            resample_ind[1] = list(np.arange(t, t+forecast_length))
+            resample_ind_pred = resample_ind.copy()
             resample_ind_pred[1] = t
+            resample_ind = resample_ind[:, None] + np.arange(forecast_length)[None, :]
 
             if metric_name == 'acc':
                 var_metric[f'{metric_name}_{label}'] = calculate_acc(y_pred[t,:], ytrue[t:t+forecast_length,:], 
                                                 latitude_weights = latitude_weights, axis = (-1, -2))
-                var_metric_resample = calculate_acc(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                var_metric_resample = calculate_acc(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:].squeeze(), 
                                                 latitude_weights = latitude_weights, axis = (-1, -2))
             # Calculate MAE
             elif metric_name == 'mae':
                 var_metric[f'{metric_name}_{label}'] = calculate_mae(y_pred[t,:], ytrue[t:t+forecast_length,:], 
                                                 latitude_weights = latitude_weights, axis = (-1, -2))
-                var_metric_resample = calculate_mae(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                var_metric_resample = calculate_mae(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:].squeeze(), 
                                                 latitude_weights = latitude_weights, axis = (-1, -2))
             # Calculate MSE
             elif metric_name == 'mse':
                 var_metric[f'{metric_name}_{label}'] = calculate_mse(y_pred[t,:], ytrue[t:t+forecast_length,:], 
                                                 latitude_weights = latitude_weights, axis = (-1, -2))
-                var_metric_resample = calculate_mse(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                var_metric_resample = calculate_mse(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:].squeeze(), 
                                                 latitude_weights = latitude_weights, axis = (-1, -2))
             # Calculate RMSE
             elif metric_name == 'rmse':
                 var_metric[f'{metric_name}_{label}'] = calculate_rmse(y_pred[t,:], ytrue[t:t+forecast_length,:], 
                                                     latitude_weights = latitude_weights, axis = (-1, -2))
-                var_metric_resample = calculate_rmse(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:], 
+                var_metric_resample = calculate_rmse(y_pred[resample_ind_pred,:,:,:].squeeze(), ytrue[resample_ind,:,:].squeeze(), 
                                                 latitude_weights = latitude_weights, axis = (-1, -2))
 
             # Resample variables should have shape (n_resample, forecast_length)
@@ -927,7 +915,7 @@ def add_fd_indices(
             # nc.variables['fdii4'][:] = data_tmp['fdii4'][:]
 
 
-def make_fd_indices(args) -> None:
+def make_fd_indices(args, rotations) -> None:
     '''
     Calculate and add flash drought (FD) indices (the standardized evaporative stress ratio [SESR], 
     and the flash drought intensity index [FDII] for all soil depths) to a set of model predictions
@@ -1087,7 +1075,7 @@ def make_variation_plots(args) -> None:
      # Variables and subsets to plot
     variables_to_plot = ['tp', 'tp_30d', 'e', 'pev', 'ndvi', 'evi', 'lai', 'fpar', 'd2m', 'tair',# 'sp',
                             'swvl1', 'swvl2', 'swvl3', 'swvl4']
-    subsets = ['africa', 'africa_nh', 'africa_sh', 'africa_tropics', 'nh', 'sh', 'tropics', 'conus']
+    subsets = ['africa', 'sahel', 'congo', 'eastern', 'southern', 'africa_nh', 'africa_sh', 'africa_tropics', 'nh', 'sh', 'tropics', 'conus']
 
     # Initialize datasets
     true_datasets = {}
@@ -1122,6 +1110,12 @@ def make_variation_plots(args) -> None:
                 climatology[var][t,:,:] = np.where(mask == 1, climatology[var][t,:,:], np.nan)
         T, I, J = climatology[var].shape
     times = root['time'][:]
+
+    latitude_weights, _, _ = load_lat_weights(
+        filename = "lat_and_lons.nc",
+        path = args.data_path,
+        subset = None,
+    )
 
     # Initialize all the dictionary values to lists (one for each possible subset and variable)
     for sub in subsets:
@@ -1276,11 +1270,14 @@ def make_variation_plots(args) -> None:
                         sub_data, _, _ = subset_data(anom, lat, lon, sub)
                         sub_var, _, _ = subset_data(variable, lat, lon, sub)
                         # print(true_subset_data[sub][var].shape)
+
+                        # Subset latitude weights
+                        lat_weight_sub, _, _ = subset_data(latitude_weights, lat, lon, sub)
                         
                         # Calculate the Ratio of Principal Components (RPC) to compare variation 
                         # between original variables and anomalies
-                        rpc_tmp = calculate_rpc(true_subset_data[sub][var][ind_obs[0],:,:], sub_var)
-                        rpc_anom_tmp = calculate_rpc(true_subset_anom_data[sub][var][ind_obs[0],:,:], sub_data)
+                        rpc_tmp = calculate_rpc(true_subset_data[sub][var][ind_obs[0],:,:], sub_var, latitude_weights = lat_weight_sub)
+                        rpc_anom_tmp = calculate_rpc(true_subset_anom_data[sub][var][ind_obs[0],:,:], sub_data, latitude_weights = lat_weight_sub)
 
                         # Save the RPC information
                         tmp_rpc[sub][var].append(rpc_tmp)
@@ -1908,7 +1905,7 @@ if __name__ == '__main__':
     parser.add_argument('--case_study_start_date', type = str, default = '2020-03-01', help = 'Start date of the case study to examine (must be in a format pd.to_datetime can read)')
 
     # Pathing arguments
-    parser.add_argument('--prediction_path', type = str, default = '/scratch/rarrell/credit_model', help = 'Path to credit predictions, where the forecasts directory is')
+    parser.add_argument('--prediction_path', type = str, default = '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results', help = 'Path to credit predictions, where the forecasts directory is')
     parser.add_argument('--data_path', type = str, default = '/ourdisk/hpc/ai2es/sedris/credit_datasets', help = 'Path to true labels and climatology dataset')
     parser.add_argument('--figure_path', type = str, default = '/ourdisk/hpc/ai2es/sedris/droughtformer_project/scripts/figures', help = 'path to where the created figures are stored')
 
@@ -1983,7 +1980,7 @@ if __name__ == '__main__':
     
     # Concatenate all years into a single array for all dates in the rotations
     rotation_dates = np.concatenate(rotation_dates)
-    print(rotation_dates)
+    # print(rotation_dates)
 
     # Collect all months in the used rotations
     months = np.array([date.month for date in rotation_dates])
@@ -1997,7 +1994,7 @@ if __name__ == '__main__':
 
     # Make FD indices if requested
     if args.calculate_fd_indices:
-        make_fd_indices(args)
+        make_fd_indices(args, rotations)
 
     # Make climatology and persistence metrics if requested
     if args.make_clim_metrics:
@@ -2056,27 +2053,34 @@ if __name__ == '__main__':
         if args.block_bootstrap:
             from functools import reduce
             # Gather and merge all files into one
-            for timestamp in all_dates:
-                filenames = '%04d-%02d-%02dT00Z_*_%s_block_bootstrap.csv'%(timestamp.year, timestamp.month, timestamp.day, args.subset)
-                dfs = []
-                files = glob("%s/cache/%s/%s"%(rotation_path, args.subset, filenames), recursive = True)
-                for file in files:
-                    dfs.append([
-                        pd.read_csv(file, sep = ',',
-                                    # names = metrics_initial.columns, 
-                                    index_col = 0, 
-                                    header = 0,
-                                    nrows = forecast_length)
-                    ])
-                
-                # Merge the dataframes into one
-                df = reduce(lambda x, y: pd.merge(x, y), dfs)
-                # Check the full dataframe
-                print(df)
 
-                # Now write the data frame a normal file load_metrics typically reads
+            for timestamp in rotation_dates:
+                # Filename of the merged dataset
                 filename = '%04d-%02d-%02dT00Z_%s_block_bootstrap.csv'%(timestamp.year, timestamp.month, timestamp.day, args.subset)
-                df.to_csv('%s/forecasts/metrics/%s'%(rotation_path, filename), index = True, mode = 'w')
+
+                if np.invert(os.path.exists('%s/forecasts/metrics/%s'%(rotation_path, filename))):  
+                    date = timestamp + timedelta(days = 1)
+                    filenames = '%04d-%02d-%02dT00Z_*_%s_block_bootstrap.csv'%(date.year, date.month, date.day, args.subset)
+                    dfs = []
+                    files = glob("%s/cache/%s/%s"%(rotation_path, args.subset, filenames), recursive = True)
+                    # print("%s/cache/%s/%s"%(rotation_path, args.subset, filenames))
+                    for file in np.sort(files): # Sort the files so they are all in the same order regardless of timestamp
+                        dfs.append(
+                            pd.read_csv(file, sep = ',',
+                                        # names = metrics_initial.columns, 
+                                        index_col = 0, 
+                                        header = 0,
+                                        nrows = forecast_length)
+                        )
+                    
+                    # Merge the dataframes into one
+                    df = reduce(lambda x, y: pd.merge(x, y, right_index = True, left_index = True), dfs)
+
+                    # Check the full dataframe
+                    # print(df)
+
+                    # Now write the data frame a normal file load_metrics typically reads
+                    df.to_csv('%s/forecasts/metrics/%s'%(rotation_path, filename), index = True, mode = 'w')
 
         metric_list, clim_list, persist_list = load_metrics(
             rotations, 
@@ -2212,8 +2216,11 @@ if __name__ == '__main__':
             vit_plot = metric_vit[metric]
 
             if args.block_bootstrap:
-                metric_plot_high = metric_list[f"{metric}_high"]
-                metric_plot_low = metric_list[f"{metric}_low"]
+                metric_plot_high = np.nanmean(metric_list[f"{metric}_high"], axis = 0)
+                metric_plot_low = np.nanmean(metric_list[f"{metric}_low"], axis = 0)
+                # print(metric)
+                # print(metric_plot_high)
+                # print(metric_plot_low)
 
             # Make the first set of performance plots
             savename = '%s_in_forecast_hour.png'%metric if args.subset is None else '%s_%s_in_forecast_hour.png'%(args.subset, metric)
@@ -2247,8 +2254,8 @@ if __name__ == '__main__':
             vit_plot = metric_vit[metric][ind,:]
 
             if args.block_bootstrap:
-                metric_plot_high = metric_list[f"{metric}_high"][ind,:]
-                metric_plot_low = metric_list[f"{metric}_low"][ind,:]
+                metric_plot_high = np.nanmean(metric_list[f"{metric}_high"][ind,:], axis = 0)
+                metric_plot_low = np.nanmean(metric_list[f"{metric}_low"][ind,:], axis = 0)
 
             # Make the second set of performance plots for summer months
             savename = '%s_summer_in_forecast_hour.png'%metric if args.subset is None else '%s_%s_summer_in_forecast_hour.png'%(args.subset, metric)
@@ -2282,8 +2289,8 @@ if __name__ == '__main__':
             vit_plot = metric_vit[metric][ind,:]
 
             if args.block_bootstrap:
-                metric_plot_high = metric_list[f"{metric}_high"][ind,:]
-                metric_plot_low = metric_list[f"{metric}_low"][ind,:]
+                metric_plot_high = np.nanmean(metric_list[f"{metric}_high"][ind,:], axis = 0)
+                metric_plot_low = np.nanmean(metric_list[f"{metric}_low"][ind,:], axis = 0)
 
             # Make the final set of performance plots for winter months
             savename = '%s_winter_in_forecast_hour.png'%metric if args.subset is None else '%s_%s_winter_in_forecast_hour.png'%(args.subset, metric)
@@ -2346,12 +2353,23 @@ if __name__ == '__main__':
                 if timestamp.year in test_years[key]:
                     rot = key
 
+            if rot in ["single_run", "swin", "unet"]:
+                # Note all three have the same test years, 
+                # so the above loop takes the last one it iterates over (unet)
+                # So select out the correct one of the three
+                if args.additional_model == "unet":
+                    rot = "unet"
+                elif args.additional_model == "vit":
+                    rot = "swin"
+                else:
+                    rot = "single_run" 
+
         # Obtain the path to the performance metric data
         path = path_to_rotation[rot]
 
         # FD labels
-        # fd_labels = ['sesr_fd', 'sm_fd1', 'sm_fd2', 'sm_fd3', 'sm_fd4', 'fdii1', 'fdii2', 'fdii3', 'fdii4']
-        fd_labels = ['sm_fd2', ]
+        fd_labels = ['sesr_fd', 'sm_fd1', 'sm_fd2', 'sm_fd3', 'sm_fd4', 'fdii1', 'fdii2', 'fdii3', 'fdii4']
+        # fd_labels = ['sm_fd2', ]
 
         # Collect all the file names for the predictions
         # date_str = timestamp.strftime('%Y-%m-%dT%HZ')
@@ -2387,18 +2405,11 @@ if __name__ == '__main__':
                 true[fd_label].append(root[fd_label][:])
 
         # Load the latitude weights
-        with Dataset('%s/lat_and_lons.nc'%args.data_path, 'r') as nc:
-            #tmp = nc.variables['coslat'][:]
-            latitude = nc.variables['latitude'][:]
-            longitude = nc.variables['longitude'][:]
-            tmp = nc.variables['latitude'][:]
-            tmp = np.cos(tmp*np.pi/180)
-            tmp = tmp/np.nanmean(tmp)
-
-        # Expand latitude weights along the longitude line (i.e., make it the same shape as the variable data)
-        latitude_weights = np.ones((lat.shape[0], lat.shape[1]))
-        for j in range(latitude_weights.shape[-1]):
-            latitude_weights[:,j] = tmp
+        latitude_weights, latitude, longitude = load_lat_weights(
+            filename = "lat_and_lons.nc",
+            path = args.data_path,
+            subset = args.subset,
+        )
 
         # Concatenate the true labels into full arrays and subset if necessary
         dates_true = np.concatenate(dates_true)
@@ -2408,7 +2419,6 @@ if __name__ == '__main__':
             # Reduce to subset region
             if args.subset is not None:
                 true[fd_label], lat_sub, lon_sub = subset_data(true[fd_label], lat[:,0], lon[0,:], args.subset)
-                latitude_weights, _, _ = subset_data(latitude_weights, lat[:,0], lon[0,:], args.subset)
             else:
                 lat_sub = lat; lon_sub = lon
 
@@ -2498,31 +2508,30 @@ if __name__ == '__main__':
 
                     resample_ind = bootstrap_indices[:,t]
                     resample_ind = resample_ind[:,np.newaxis]
-                    resample_ind_pred = resample_ind
-                    resample_ind = np.repeat(resample_ind, forecast_length, axis = -1)
-                    resample_ind[1] = list(np.arange(t, t+forecast_length))
+                    resample_ind_pred = resample_ind.copy()
                     resample_ind_pred[1] = t
+                    resample_ind = resample_ind[:, None] + np.arange(forecast_length)[None, :]
 
                     ### Determine hits, misses, false alarms, and true misses
                     _determine_classification_metrics(
-                        true[label][resample_ind,:,:], 
+                        true[label][resample_ind,:,:].squeeze(), 
                         data[resample_ind_pred,:,:,:].squeeze(), 
                         metrics_ts, metrics_space, label, latitude_weights = latitude_weights, block_bootstrap = True, alpha = 0.95)
     
                     ### Determine metrics for FD onset
                     _determine_classification_metrics(
-                        true_onset[resample_ind,:,:], 
+                        true_onset[resample_ind,:,:].squeeze(), 
                         pred_onset[resample_ind_pred,:,:,:].squeeze(), 
                         metrics_onset_ts, metrics_onset_space, label, leniency = 5, latitude_weights = latitude_weights, block_bootstrap = True, alpha = 0.95)
     
                     ### Determine metrics for FD termination
                     _determine_classification_metrics(
-                        true_term[resample_ind,:,:], 
+                        true_term[resample_ind,:,:].squeeze(), 
                         pred_term[resample_ind_pred,:,:,:].squeeze(), 
                         metrics_term_ts, metrics_term_space, label, leniency = 5, latitude_weights = latitude_weights, block_bootstrap = True, alpha = 0.95)
 
         else:
-            for directory in new_sort(directories):
+            for directory in new_sort(directories)[:-5]: # Exclude the last few entries outside the forecast period
                 print(directory)
                 files = glob('%s/pred_*.nc'%(directory), recursive = True)
                 files_sorted = new_sort(files)
@@ -2556,7 +2565,7 @@ if __name__ == '__main__':
 
                     # Reduce to subset region
                     if args.subset is not None:
-                        data[fd_label], lat_sub, lon_sub = subset_data(data[fd_label], lat, lon, args.subset)
+                        data[fd_label], lat_sub, lon_sub = subset_data(data[fd_label], lat[:,0], lon[0,:], args.subset)
                     else:
                         lat_sub = lat; lon_sub = lon
                         lat_sub = lat_sub[::-1,:]
@@ -2681,12 +2690,23 @@ if __name__ == '__main__':
                 if timestamp.year in test_years[key]:
                     rot = key
 
+            if rot in ["single_run", "swin", "unet"]:
+                # Note all three have the same test years, 
+                # so the above loop takes the last one it iterates over (unet)
+                # So select out the correct one of the three
+                if args.additional_model == "unet":
+                    rot = "unet"
+                elif args.additional_model == "vit":
+                    rot = "swin"
+                else:
+                    rot = "single_run" 
+
         # Obtain the path to the performance metric data
         path = path_to_rotation[rot]
 
         # Collect all permutation importance files
         region = 'none' if args.subset is None else args.subset
-        files = glob('%s/feature_importances_%s_*.csv'%(path, region), recursive = True)
+        files = glob('%s/feature_importances/permutation/feature_importances_%s_*.csv'%(path, region), recursive = True)
 
         for file in np.sort(files):
             print(file)
@@ -2731,7 +2751,7 @@ if __name__ == '__main__':
             )
 
         # Load feature importance SHAP values
-        files = glob('%s/shapely_values_%s_*.csv'%(path, region), recursive = True)
+        files = glob('%s/feature_importances/shapley/shapley_values_%s_*.csv'%(path, region), recursive = True)
         for file in files:
             print(file)
 
@@ -2785,7 +2805,7 @@ if __name__ == '__main__':
                 )
        
             # Construct title and figure name for the beeswarm plot
-            title = 'Shapely Values of over the Globe for '%(outputs_long)  if args.subset is None else 'Shapely Values over %s for'%(region.title())
+            title = 'Shapely Values of over the Globe for '%(outputs_long)  if args.subset is None else 'Shapely Values over %s for '%(region.title())
             title = title + ', '.join(outputs_long) if len(outputs_long) < 5 else title
             
             savename = 'shapely_beeswarm_global_' if args.subset is None else 'shapely_beeswarm_%s_'%region
@@ -2887,16 +2907,29 @@ if __name__ == '__main__':
             if case_study_start.year in test_years[key]:
                 rot = key
 
+        if rot in ["single_run", "swin", "unet"]:
+            # Note all three have the same test years, 
+            # so the above loop takes the last one it iterates over (unet)
+            # So select out the correct one of the three
+            if args.additional_model == "unet":
+                rot = "unet"
+            elif args.additional_model == "vit":
+                rot = "swin"
+            else:
+                rot = "single_run" 
+
         pred_path = path_to_rotation[rot]
 
         # Variables to plot for case study
         variables_to_plot = ['temperature', 'dewpoint',
                              'precipitation', 'precipitation_30day', 
                              'evaporation', 'potential_evaporation', 
-                             'ndvi', 'evi', 'lai', 'fpar', 
+                             'ndvi', 'evi', 
+                             'lai', 'fpar', 
                              'soil_moisture_1', 'soil_moisture_2', 
                             #  'fdii1', 'fdii2', 
-                             'sesr']
+                             'sesr',
+                             ]
         
         if args.nprocesses > 1:
             # Use multiprocessing to make case study plots for multiple variables simultaneously
