@@ -1782,7 +1782,7 @@ def _make_classification_plots(
         metrics_ts['%s_f1_score'%fd_label],
     ]
 
-    title = full_names[fd_label] if subset is None else '%s for %s'%(full_names[fd_label], subset)
+    title = full_names[fd_label] if subset is None else '%s for %s'%(full_names[fd_label], subset.title())
     if fd_type == 'standard':
         filename = 'fd_classification_ts_%s.png'%fd_label if subset is None else '%s_fd_classification_ts_%s.png'%(subset, fd_label)
         filename_csi = 'fd_classification_threat_scores_ts_%s.png'%fd_label if subset is None else '%s_fd_classification_threat_scores_ts_%s.png'%(subset, fd_label)

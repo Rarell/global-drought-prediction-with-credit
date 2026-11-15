@@ -162,7 +162,7 @@ def get_metric_information(metric) -> Tuple[str, str, int]:
         level = int(level)
 
     # Underscore variables (e.g., tp_7d, tp_14d, tp_30d) require special attention since they split into an extra entry
-    elif (str_split[1] in underscore_variables) & (("tot" in str_split) | ("30day" in str_split)):
+    elif (str_split[1] in underscore_variables) & (("tot" in str_split) | ("30d" in str_split)):
         metric_name = str_split[0]; var1 = str_split[1]; var2 = str_split[2] # = metric.split('_')
 
         # Special attention for underscore variables (note this is for non upper-air variables; level = None)
