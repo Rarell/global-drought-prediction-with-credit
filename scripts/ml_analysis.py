@@ -44,6 +44,7 @@ from plotting import (
     plot_classification_metrics,
     plot_map,
     make_barplot,
+    create_regional_boxes,
 )
 
 # Load zarr files in a similar method as zarr2 (there are currently errors without this)
@@ -2145,7 +2146,7 @@ if __name__ == '__main__':
             # clim_plot = np.nanmean(clim_list[metric], axis = 0)
             # persist_plot = np.nanmean(persist_list[metric], axis = 0)
             
-            if metric_name == 'rmse':
+            if (metric_name == 'rmse') | (metric_name == 'acc'):
                 # Perform statistical significance test here between metric_list[metric] and clim_list[metric]
                 # Recall that metric_list[metric].shape = time x forecast_day
                 # Potential DM test:
@@ -2331,7 +2332,7 @@ if __name__ == '__main__':
                 savename = 'score_card_%s_%s.png'%(metric, variable) if args.subset is None else 'score_card_%s_%s_%s.png'%(metric, variable, args.subset)
                 make_score_cards(clim_list['%s_%s'%(metric, variable)], metric_list['%s_%s'%(metric, variable)],
                                  months, variable = variable, score = metric, 
-                                 subset = 'none' if args.subset == None else args.subset,
+                                 subset = args.subset,
                                  cmin = cmin, cmax = cmax, cint = cint, 
                                  path = args.figure_path, savename = savename)
 
@@ -2569,7 +2570,7 @@ if __name__ == '__main__':
                         data[fd_label], lat_sub, lon_sub = subset_data(data[fd_label], lat[:,0], lon[0,:], args.subset)
                     else:
                         lat_sub = lat; lon_sub = lon
-                        lat_sub = lat_sub[::-1,:]
+                        # lat_sub = lat_sub[::-1,:]
 
                     tmp = np.where(data[fd_label] == 0, np.nan, data[fd_label])
                     forecast_length, I, J = data[fd_label].shape
@@ -2947,6 +2948,55 @@ if __name__ == '__main__':
                 make_case_study_plots(args, variable, case_study_start, case_study_end, pred_path, verbose = True)
 
     if args.appendix_figure:
+        from pyhdf.SD import SD, SDC
+        from netCDF4 import Dataset
+
+        # Collect the land cover type data
+        file = SD('../../modis/raw/MCD12C1.A2022001.061.2023244164746.hdf', SDC.READ)
+        print(file.datasets())
+
+        # Collect the data
+        data_holder = file.select('Majority_Land_Cover_Type_1')
+        print(data_holder.attributes())
+        print(data_holder.info())
+
+        # Land cover types
+        # lct = data_holder.attributes().keys()
+        lct = np.array([key for key in data_holder.attributes().keys()])
+        print(lct[4:])
+
+        data = data_holder.get()
+        data = np.array(data)
+
+        # Obtain the latitude and longitudes
+        resolution = 0.05
+        lat = np.arange(-90, 90, resolution)
+        lat = lat[::-1]
+        lon = np.arange(-180, 180, resolution)
+
+        # Subset to the plotted domain
+        lat_ind = np.where((lat >= -42) & (lat <= 42))[0]
+        lon_ind = np.where((lon >= -30) & (lon <= 55))[0]
+
+        lat = lat[lat_ind]; lon = lon[lon_ind]
+        data = data[lat_ind,:]
+        data = data[:,lon_ind]
+        
+        # Make lat and lon 2D for plotted
+        lon, lat = np.meshgrid(lon, lat)
+
+        # Make the regional/land cover plot
+        # print(Dataset('../../modis/raw/MCD12C1.A2022001.061.2023244164746.hdf', 'r'))
+        savename = 'africa_regional_map.png'
+        create_regional_boxes(
+            data, 
+            lat, 
+            lon, 
+            lct[4:], 
+            savename = savename, 
+            path = args.figure_path,
+        )
+
         # Define the different experiments for the appendix figure
         experiments = ['convT', 'upsampling', 'ps_no_phys', 'ps_phys']
         # Figure titles
@@ -2973,8 +3023,8 @@ if __name__ == '__main__':
         # which can be easily combined in OmniGraffle (and reduces loading too much information at once)
         for n, experiment in enumerate(experiments):
             # Load in rmse skill metrics
-            rotation_path = {0: '/ourdisk/hpc/ai2es/sedris/results/%s/'%experiment,
-                             'single_run': '/ourdisk/hpc/ai2es/sedris/results/%s/'%experiment}
+            rotation_path = {0: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/%s/'%experiment,
+                             'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/%s/'%experiment}
 
             metric_list, clim_list, persist_list = load_metrics(rotations, 
                                                                 all_dates, 

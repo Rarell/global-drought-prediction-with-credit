@@ -2340,6 +2340,8 @@ def make_score_cards(
     # For squared error, improvement is lower scores (reverse change for lower values is improvement)
     table_plot = table_plot if score == 'acc' else -1 * table_plot
 
+
+
     # Colorbar information
     clevs = np.arange(cmin, cmax + cint, cint)
     nlevs = len(clevs)-2
@@ -2896,6 +2898,168 @@ def make_barplot(bars, labels, bars_std = None, title = 'title', ylabel = 'impor
 
     plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
     plt.show(block = False)
+
+def create_regional_boxes(
+        lc, 
+        lat, 
+        lon, 
+        legend_labels, 
+        path: str = './',
+        savename: str = 'tmp.png', 
+        ) -> None:
+    '''
+    Create a map displaying land cover and how the map is split into different subregions
+
+    Inputs:
+    :param lc: Land cover data to plot
+    :param lat, lon: Latitudes and longitudes for the land cover
+    :param legend_labels: List of labels for all possible land cover types for the legend
+    :param path, savename: Path to save directory and name to save the figure as
+    '''
+
+    # Subset information
+    lower_lat = subset_information['africa']['map_extent'][0]; upper_lat = subset_information['africa']['map_extent'][1]
+    lower_lon = subset_information['africa']['map_extent'][2]; upper_lon = subset_information['africa']['map_extent'][3]
+
+    # Set the borders of the subregions
+    borders = [ # Order is [min_lat, max_lat, min_lon, max_lon] 
+        [4, 15, 340, 28], # (min and max lon refer to western 
+        [-10, 4, 8, 28],  # and eastern lon respectively)
+        [-10, 15, 28, 52],
+        [-35, -10, 9, 51],
+    ]
+
+    labels = [
+        'SL', # Sahel
+        'CB', # Congo Basin
+        'EA', # Eastern Africa
+        'SA', # Southern Africa
+    ]
+
+    colors = [ # Using colors from a Google Earth example (https://developers.google.com/earth-engine/guides/image_visualization#colab-python_8)
+        '#aec3d4', # Water
+        '#152106', # Evergreen Needleleaf
+        '#225129', # Evergreen Broadleaf
+        '#369b47', # Deciduous Needleleaf
+        '#30eb5b', # Deciduous Broadleaf
+        '#387242', # Mixed Forest
+        '#6a2325', # Closed Shrubland
+        '#c3aa69', # Open Shrublands
+        '#b76031', # Woody Savannas
+        '#d9903d', # Savannas
+        '#91af40', # Grasslands
+        '#111149', # Permanent Wetlands
+        '#ff0000', # Croplands; Use the AI suggested color for better visibility
+        # '#cdb33b', # Croplands
+        '#cc0013', # Urban and Built Up
+        '#33280d', # Cropland and Natural Vegetation Mosaic
+        '#d7cdcc', # Snow and Ice
+        '#f7e084', # Baren/Sparsely Vegetated
+    ]
+
+    # Determine which classes to exclude in the legend based on infrequent use (nearly invisible)
+    classes = np.arange(0, 16+1)
+    exclude_classes = np.array([np.nansum(lc == land_class) <= 100 for land_class in classes])
+    exclude_indices = np.where(exclude_classes == True)[0]
+
+    # Colorbar information
+    cmin = 0; cmax = 16
+    clevs = np.arange(cmin, cmax + 1)
+    nlevs = len(clevs)
+    cmap = mcolors.ListedColormap(colors)
+
+    # Lonitude and latitude tick information
+    lat_int = 10
+    lon_int = 20
+    
+    LatLabel = np.arange(-90, 90, lat_int)
+    LonLabel = np.arange(-180, 180, lon_int)
+    
+    LonFormatter = cticker.LongitudeFormatter()
+    LatFormatter = cticker.LatitudeFormatter()
+
+    # Projection information
+    proj = ccrs.PlateCarree()
+
+    # Initialize the figure
+    fig = plt.figure(figsize = [20,20])
+    ax = fig.add_subplot(1,1,1, projection = proj)
+
+    # Add coastlines and country borders
+    ax.coastlines(edgecolor = 'black', zorder = 3)
+    ax.add_feature(cfeature.BORDERS, facecolor = 'none', edgecolor = 'black', zorder = 3)
+
+	# Plot the land cover
+    cs = ax.pcolormesh(lon, lat, lc, vmin = cmin, vmax = cmax, cmap = cmap, transform = proj, zorder = 1)
+
+	# Set the tick formatting
+    ax.set_yticklabels(LatLabel, fontsize = 26)
+    ax.yaxis.set_major_formatter(LatFormatter)
+    
+    ax.set_xticklabels(LonLabel, fontsize = 26)
+    ax.xaxis.set_major_formatter(LonFormatter)
+    
+    # Adjust the ticks
+    ax.set_xticks(LonLabel, crs = proj)
+    ax.set_yticks(LatLabel, crs = proj)
+    
+    # Add regional boxes
+    for border, label in zip(borders, labels):
+        # Determine borders and rectangular box information
+        # Adjust to -180 to 180 longitude format for plotting mpatches.Rectangle
+        height = border[1] - border[0]
+        min_lat = border[0]
+        if border[2] > 180:
+            min_lon = border[2] - 360
+        else:
+            min_lon = border[2]
+
+        if border[3] > 180:
+            max_lon = border[3] - 360
+        else:
+            max_lon = border[3]
+        width = max_lon - min_lon
+
+        # Make the box for the region
+        ax.add_patch(mpatches.Rectangle(xy = [min_lon, min_lat], 
+                                        width = width, 
+                                        height = height, 
+                                        facecolor = 'none', 
+                                        edgecolor = 'k', 
+                                        linewidth = 4, 
+                                        transform = proj, 
+                                        zorder = 4))
+        
+        # Determine the label location
+        if (min_lon > 180) & (max_lon < 180):
+            central_lon = (min_lon - max_lon)/2
+        else:
+            central_lon = (min_lon + max_lon)/2
+        # Add the label for the border
+        ax.text(min_lon+1,#central_lon,           # Longitude (x) coordinate
+                border[0]+1,#np.mean(border[:2]), # Latitude (y) coordinate
+                label,
+                color = 'k',
+                bbox = dict(facecolor = 'white', edgecolor = None),
+                fontsize = 26)
+
+    # Set the map extent
+    ax.set_extent([lower_lon, upper_lon, lower_lat, upper_lat])
+
+    # Make the patches for labels
+    boxes = [mpatches.Rectangle((0,0), 2, 1, facecolor = color, edgecolor = 'k', label = label.title()) for color, label in zip(colors, legend_labels)]
+
+    # Remove classes with few pixels
+    for ind in reversed(exclude_indices):
+        boxes.pop(ind)
+
+    # Add boxes indicating significance colors
+    fig.legend(handles = boxes, bbox_to_anchor = (1.28, 0.89), frameon = False, ncols = 1, fontsize = 26)
+
+    # Save the figure
+    plt.savefig('%s/%s'%(path, savename), bbox_inches = 'tight')
+    plt.show(block = False)
+    plt.close()
 
 # Main function loads in data and makes figures to test functions and tune figure parameters
 if __name__ == '__main__':
