@@ -5,3 +5,5 @@ contains the scripts used to collect, process, and orgnize the datasets for Drou
 code used to postprocess forecasts made by the most recently trained version of DroughtFormer. Figures made from the postprocessing, as well as
 the weights and learning history of the most recent version are found in results. Lastly, customized versions of the CREDIT code, from testing
 different parameters, are also found in modified_credit_files.
+
+Manuscript preprint can be found at: https://doi.org/10.48550/arXiv.2605.05255
