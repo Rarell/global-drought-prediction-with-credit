@@ -2258,6 +2258,7 @@ def make_score_cards(
         variable: str = 'swvl1', 
         score: str = 'rmse', 
         subset: str = 'none',
+        conf_interval = None,
         cmin: int = -15, 
         cmax: int = 15, 
         cint: float = 1.0, 
@@ -2281,6 +2282,16 @@ def make_score_cards(
     :param path: The path to the directory where the scorecard will be saved
     :param savename: The save/file name the scorecard will be saved as
     '''
+    def quantify_change(true, pred, metric):
+        """
+        Determine percent change
+        """
+        percent_change = ((pred - true) / true) * 100
+
+        # Change sign lower is better
+        percent_change = percent_change if metric == 'acc' else -1 * percent_change
+
+        return percent_change
 
     # Determin the regional label based on the subset
     if subset is None:
@@ -2326,21 +2337,71 @@ def make_score_cards(
 
     # Percent change relative to all months
     table_plot[0,:] = 0 # Base scores have 0% change/improvement since they are the base level
-    table_plot[1,:] = ((display_values[1,:] - display_values[0,:]) / display_values[0,:]) * 100
+    table_plot[1,:] = quantify_change(display_values[0,:], display_values[1,:], score)
+    # table_plot[1,:] = ((display_values[1,:] - display_values[0,:]) / display_values[0,:]) * 100
     # table_plot[1,:] = np.nanmean(percent_change, axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)]
 
     # Percent change for all spring and summer months
-    table_plot[2,:] = ((display_values[2,:] - display_values[0,:]) / display_values[0,:]) * 100
+    table_plot[2,:] = quantify_change(display_values[0,:], display_values[2,:], score)
+    # table_plot[2,:] = ((display_values[2,:] - display_values[0,:]) / display_values[0,:]) * 100
     # table_plot[2,:] = np.nanmean(percent_change[ind_summer,:], axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)]
 
     # Percent change for all fall and winter months
-    table_plot[3,:] = ((display_values[3,:] - display_values[0,:]) / display_values[0,:]) * 100
+    table_plot[3,:] = quantify_change(display_values[0,:], display_values[3,:], score)
+    # table_plot[3,:] = ((display_values[3,:] - display_values[0,:]) / display_values[0,:]) * 100
     # table_plot[3,:] = np.nanmean(percent_change[ind_winter,:], axis = 0)[inds]#[::int(Nforecast_days/Nprediction_steps)]
 
     # For squared error, improvement is lower scores (reverse change for lower values is improvement)
-    table_plot = table_plot if score == 'acc' else -1 * table_plot
+    # table_plot = table_plot if score == 'acc' else -1 * table_plot
 
+    # Determine confidence intervals and save as .csv files
+    if conf_interval is not None:
+        import pandas as pds
+        # May add a check if conf_interval is a tuple of two lists or not
 
+        # For now, assume conf_interval is a tuple of two arrays (shape time x forecast_length)
+        
+        # Average confidence intervals in time
+        low_interval = np.nanmean(conf_interval[0], axis = 0)[inds]
+        high_interval = np.nanmean(conf_interval[1], axis = 0)[inds]
+
+        # Average confidence intervals for MAMJJA and SONDJF months
+        low_interval_sum = np.nanmean(conf_interval[0][ind_summer], axis = 0)[inds]
+        high_interval_sum = np.nanmean(conf_interval[1][ind_summer], axis = 0)[inds]
+
+        # SONDJF Months
+        low_interval_win = np.nanmean(conf_interval[0][ind_winter], axis = 0)[inds]
+        high_interval_win = np.nanmean(conf_interval[1][ind_winter], axis = 0)[inds]
+
+        # Determine percent changes
+        change_conf_interval = np.array([
+            [i + 1 for i in inds], # Forecast day
+            quantify_change(display_values[0,:], low_interval, score), # Low interval
+            quantify_change(display_values[0,:], high_interval, score), # High interval
+            quantify_change(display_values[0,:], low_interval_sum, score), # Low interval "summer"
+            quantify_change(display_values[0,:], high_interval_sum, score), # High interval "summer"
+            quantify_change(display_values[0,:], low_interval_win, score), # Low interval "winter"
+            quantify_change(display_values[0,:], high_interval_win, score), # High interval "winter"
+        ])
+        
+        # Convert to pandas DataFrame
+
+        conf_interval_df = pds.DataFrame(
+            change_conf_interval.T, 
+            columns = [
+                "forecast_day", 
+                "low_interval", 
+                "high_interval", 
+                "low_interval_summer",
+                "high_interval_summer",
+                "low_interval_winter",
+                "high_interval_winter",
+            ],
+        )
+
+        # Write the confidence intervals
+        conf_interval_fn = "score_card_confidence_intervals_%s_%s_%s.csv"%(score, variable, label)
+        conf_interval_df.to_csv(conf_interval_fn, sep = ",")
 
     # Colorbar information
     clevs = np.arange(cmin, cmax + cint, cint)

@@ -111,6 +111,10 @@ path_to_rotation = {
     10: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_10/',
     11: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/rotation_11/',
     'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/one_experiment_run/',# '/ourdisk/hpc/ai2es/sedris/results/one_experiment_run/'
+    # 'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/convT/',
+    # 'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/upsampling/',
+    # 'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/ps_no_phys/',
+    # 'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/ps_phys/',
     'swin': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/vit_model/',
     'unet': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/unet_model/',
 }
@@ -2098,6 +2102,20 @@ if __name__ == '__main__':
 
     # Make performance plots if requested
     if args.make_performance_plots:
+        # Check if one of the FD indices was determined to metric list, and if so, add FD indices to the initial columns
+        keys = []
+        for key in metric_list.keys():
+            keys.append(key)
+
+        # Note add_fd_indices adds all indices at once, so only the existence of one needs to be checked
+        if ("acc_sesr" in keys) & ("mae_sesr" in keys) & ("mse_sesr" in keys) & ("rmse_sesr" in keys): # Ensure all metrics were determined for FD indices
+            metrics_initial["acc_sesr"] = None; metrics_initial["mae_sesr"] = None; metrics_initial["mse_sesr"] = None; metrics_initial["rmse_sesr"] = None 
+            metrics_initial["acc_fdii1"] = None; metrics_initial["mae_fdii1"] = None; metrics_initial["mse_fdii1"] = None; metrics_initial["rmse_fdii1"] = None
+            metrics_initial["acc_fdii2"] = None; metrics_initial["mae_fdii2"] = None; metrics_initial["mse_fdii2"] = None; metrics_initial["rmse_fdii2"] = None
+            metrics_initial["acc_fdii3"] = None; metrics_initial["mae_fdii3"] = None; metrics_initial["mse_fdii3"] = None; metrics_initial["rmse_fdii3"] = None
+            metrics_initial["acc_fdii4"] = None; metrics_initial["mae_fdii4"] = None; metrics_initial["mse_fdii4"] = None; metrics_initial["rmse_fdii4"] = None 
+            
+
         # Load a U-net and ViT model for comparison
         metric_unet, _, _ = load_metrics(
             ['unet'], 
@@ -2123,7 +2141,6 @@ if __name__ == '__main__':
 
         # Make the plots for each variable and performance metric
         for metric in metrics_initial.columns:
-
             if metric in skip_variables: # These include time and forecast_step, which is what the metrics are plotted against
                 continue
             
@@ -2214,8 +2231,12 @@ if __name__ == '__main__':
             metric_plot = metric_list[metric]
             clim_plot = clim_list[metric]
             persist_plot = persist_list[metric]
-            u_net_plot = metric_unet[metric]
-            vit_plot = metric_vit[metric]
+            if ("sesr" in var_name) | ("fdii" in var_name):
+                add_plots = None # Note FD indices have not been determined for U-net or SWin transformers
+            else:
+                u_net_plot = metric_unet[metric]
+                vit_plot = metric_vit[metric]
+                add_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0))
 
             if args.block_bootstrap:
                 metric_plot_high = np.nanmean(metric_list[f"{metric}_high"], axis = 0)
@@ -2236,7 +2257,7 @@ if __name__ == '__main__':
                 month = None, year = None, 
                 add_variation = True,
                 variation = (metric_plot_low, metric_plot_high) if args.block_bootstrap else None,
-                additional_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0)),
+                additional_plots = add_plots,
                 additional_plot_labels = ("U-Net", "SWin"),
                 additional_plot_colors = ("darkgreen", "darkmagenta"),
                 path = args.figure_path, 
@@ -2252,8 +2273,12 @@ if __name__ == '__main__':
             metric_plot = metric_list[metric][ind,:]
             clim_plot = clim_list[metric][ind,:]
             persist_plot = persist_list[metric][ind,:]
-            u_net_plot = metric_unet[metric][ind,:]
-            vit_plot = metric_vit[metric][ind,:]
+            if ("sesr" in var_name) | ("fdii" in var_name):
+                add_plots = None # Note FD indices have not been determined for U-net or SWin transformers
+            else:
+                u_net_plot = metric_unet[metric][ind,:]
+                vit_plot = metric_vit[metric][ind,:]
+                add_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0))
 
             if args.block_bootstrap:
                 metric_plot_high = np.nanmean(metric_list[f"{metric}_high"][ind,:], axis = 0)
@@ -2271,7 +2296,7 @@ if __name__ == '__main__':
                 month = 6, year = None, 
                 add_variation = True,
                 variation = (metric_plot_low, metric_plot_high) if args.block_bootstrap else None,
-                additional_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0)),
+                additional_plots = add_plots,
                 additional_plot_labels = ("U-Net", "SWin"),
                 additional_plot_colors = ("darkgreen", "darkmagenta"),
                 path = args.figure_path, 
@@ -2287,8 +2312,12 @@ if __name__ == '__main__':
             metric_plot = metric_list[metric][ind,:]
             clim_plot = clim_list[metric][ind,:]
             persist_plot = persist_list[metric][ind,:]
-            u_net_plot = metric_unet[metric][ind,:]
-            vit_plot = metric_vit[metric][ind,:]
+            if ("sesr" in var_name) | ("fdii" in var_name):
+                add_plots = None # Note FD indices have not been determined for U-net or SWin transformers
+            else:
+                u_net_plot = metric_unet[metric][ind,:]
+                vit_plot = metric_vit[metric][ind,:]
+                add_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0))
 
             if args.block_bootstrap:
                 metric_plot_high = np.nanmean(metric_list[f"{metric}_high"][ind,:], axis = 0)
@@ -2306,7 +2335,7 @@ if __name__ == '__main__':
                 month = 12, year = None, 
                 add_variation = True,
                 variation = (metric_plot_low, metric_plot_high) if args.block_bootstrap else None,
-                additional_plots = (np.nanmean(u_net_plot, axis = 0), np.nanmean(vit_plot, axis = 0)),
+                additional_plots = add_plots,
                 additional_plot_labels = ("U-Net", "SWin"),
                 additional_plot_colors = ("darkgreen", "darkmagenta"),
                 path = args.figure_path, 
@@ -2329,10 +2358,17 @@ if __name__ == '__main__':
 
             # Make the score cards for each of the each metric and variable
             for variable in variables_to_plot:
+                if args.block_bootstrap:
+                    # Determine confidence interval if block bootstrapping was performed
+                    conf_interval = (metric_list['%s_%s_low'%(metric, variable)], metric_list['%s_%s_high'%(metric, variable)])
+                else:
+                    conf_interval = None
+
                 savename = 'score_card_%s_%s.png'%(metric, variable) if args.subset is None else 'score_card_%s_%s_%s.png'%(metric, variable, args.subset)
                 make_score_cards(clim_list['%s_%s'%(metric, variable)], metric_list['%s_%s'%(metric, variable)],
                                  months, variable = variable, score = metric, 
                                  subset = args.subset,
+                                 conf_interval = conf_interval,
                                  cmin = cmin, cmax = cmax, cint = cint, 
                                  path = args.figure_path, savename = savename)
 
@@ -2570,7 +2606,7 @@ if __name__ == '__main__':
                         data[fd_label], lat_sub, lon_sub = subset_data(data[fd_label], lat[:,0], lon[0,:], args.subset)
                     else:
                         lat_sub = lat; lon_sub = lon
-                        # lat_sub = lat_sub[::-1,:]
+                        lat_sub = lat_sub[::-1,:]
 
                     tmp = np.where(data[fd_label] == 0, np.nan, data[fd_label])
                     forecast_length, I, J = data[fd_label].shape
@@ -2674,6 +2710,7 @@ if __name__ == '__main__':
                 args.figure_path, 
                 fd_type = 'termination'
             )
+      
             
     # Make figures for feature importances
     if args.make_feature_importance_plots:
@@ -2893,8 +2930,7 @@ if __name__ == '__main__':
             # Save the figures
             plt.savefig('%s/%s'%(args.figure_path, savename), bbox_inches = 'tight')
             plt.show(block = False)
-            
-        
+                  
 
     # Make the case study plots if requested
     if args.make_case_studies:
@@ -2946,6 +2982,7 @@ if __name__ == '__main__':
             # Make the case study plots one variable at a time
             for variable in tqdm(variables_to_plot):
                 make_case_study_plots(args, variable, case_study_start, case_study_end, pred_path, verbose = True)
+
 
     if args.appendix_figure:
         from pyhdf.SD import SD, SDC
@@ -3019,12 +3056,121 @@ if __name__ == '__main__':
                                 #  subplot_kw = {'projection': fig_proj})
         # plt.subplots_adjust(hspace = -0.60)
 
+        # Define a function to determine metrics for stiping artifacts
+        def stripe_metrics(variable, lat = None, latitude_weights = 1, kmin = 1):
+            """
+            Determine metrics for striping artifacts based on 2D FFTs
+            Vertical stripes put energy in kx = 0 at ky >= kmin.
+
+            Striping metrics:
+            stripe_fraction: energy (kx = 0, ky>=kmin) / energy (all modes)
+            stripe_amp: Root mean square (RMS) of the lon-mean of the meridionally demeaned field
+                        (i.e., the amplitude of the column pattern in variable units)
+            strip_ratio: stripe_amp / RMS of meridionally-demeaned field
+
+            This code is heavily based off code produced by Claude
+            """
+            T, I, J = variable.shape
+
+            # Broadcast latitude weights into a grid if only an int is given
+            if isinstance(latitude_weights, int):
+                latitude_weights = np.ones((I, J)) * latitude_weights
+
+            # Longitude-mean column profile vs total
+            var0 = variable - variable.mean(axis = -1, keepdims = True)
+            column = (var0 * latitude_weights[None,:]).sum(axis = 1)
+            amp_t = np.sqrt(column ** 2).mean(axis = -1)
+            tot_t = np.sqrt(((var0**2) * latitude_weights[None,:]).sum(axis = (1, 2))) / J
+
+            # 2D Spectrum (weight applied before FFT)
+            var_weighted = (variable - variable.mean(axis = (1, 2), keepdims = True)) * np.sqrt(latitude_weights)[None,:]
+
+            F = np.abs(np.fft.fft2(var_weighted)) ** 2
+            F[:,0,0] = 0
+            kx = np.abs(np.fft.fftfreq(J) * J)
+            tot = F.sum(axis = (1, 2))
+            # Determine vertical striping power 
+            stripe = F[:,0,:][:,kx > kmin].sum(axis = -1)
+
+            frac_t = np.where(tot > 0, stripe / tot, np.nan)
+
+            return dict(
+                stripe_fraction = np.nanmean(frac_t), 
+                stripe_amp = amp_t.mean(), 
+                stripe_ratio = np.nanmean(amp_t / np.where(tot_t > 0, tot_t, np.nan)), 
+                stripe_fraction_t = frac_t, 
+                stripe_amp_t = amp_t,
+            )
+        
+        # Load latitude weights
+        latitude_weights, lat, _ = load_lat_weights(filename = "lat_and_lons.nc", path = args.data_path)
+
+        # Some constants
+        g = 9.80665
+        rho_w = 1000
+
         # Goal: To make one column of the appendix for each of the experiment, 
         # which can be easily combined in OmniGraffle (and reduces loading too much information at once)
         for n, experiment in enumerate(experiments):
             # Load in rmse skill metrics
             rotation_path = {0: '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/%s/'%experiment,
                              'single_run': '/ourdisk/hpc/ai2es/sedris/droughtformer_project/results/%s/'%experiment}
+
+            directories = glob('%s/%s/forecasts/*'%(args.prediction_path, experiment), recursive = True)
+            directories = new_sort(directories)[:-1]
+            striping_ratio = []; striping_fraction = []; striping_ampt = []; mr = []; dpr = []
+            for direct in tqdm(directories, desc = "Evaluating striping artifacts and residuals"):
+                filenames = glob('%s/*'%direct, recursive = True)
+                sm = []; sp = []; q = []; e = []; tp = []
+                for file in np.sort(filenames):
+                    with Dataset(file, 'r') as nc:
+                        sm.append(nc.variables['swvl1'][0,:,:])
+                        q.append(nc.variables['q_tot'][0,:,:,:])
+                        sp.append(nc.variables['sp'][0,:,:])
+                        e.append(nc.variables['e'][0,:,:])
+                        tp.append(nc.variables['tp'][0,:,:])
+
+                sm = np.array(sm); q = np.array(q); sp = np.array(sp); e = np.array(e); tp = np.array(tp)
+
+                # Calculate striping metrics
+                striping_metrics = stripe_metrics(sm, lat, latitude_weights)
+                striping_ratio.append(striping_metrics["stripe_ratio"])
+                striping_ampt.append(striping_metrics["stripe_amp_t"])
+                striping_fraction.append(striping_metrics["stripe_fraction_t"])
+
+                # Compute residual dry pressure
+                twc = (0.5 * (q[:,0,...] + q[:,1,...]) * 30000) # Note only two pressure levels are provided (500 and 200 mb), the differnce of which is 300 mb; q is already in units of kg kg^-1 (unitless)
+                dp = sp - twc  
+                dp = np.nanmean(dp * latitude_weights, axis = (-2, -1)) # Weighted mean
+                dp_residual = np.diff(dp, axis = 0)
+                dpr.append(dp_residual)
+
+                # Compute residual moisture
+                twc = (0.5 * (q[:,0,...] + q[:,1,...]) * 6500) * rho_w # Average thickness in m; Units of kg m^-2
+                net_moisture = (e[:-1] - tp[:-1]) * rho_w / 1000 # Units of kg m^-2
+                dq = np.diff(twc, axis = 0)
+                moisture_residual = dq - net_moisture
+                moisture_residual = np.nanmean(moisture_residual * latitude_weights, axis = (-2, -1))
+                mr.append(moisture_residual)
+                # print(experiment, striping_metrics)
+                # print(experiment, dp_residual, moisture_residual)
+
+            mr_dict = pds.DataFrame(np.array(mr))
+            mr_dict.to_csv('%s/%s/moisture_residuals.csv'%(args.prediction_path, experiment))
+            print(experiment, mr_dict.mean(axis = 0))
+
+            dpr_dict = pds.DataFrame(np.array(dpr))
+            dpr_dict.to_csv('%s/%s/dry_mass_residuals.csv'%(args.prediction_path, experiment))
+            print(experiment, dpr_dict.mean(axis = 0))
+
+            print(experiment, np.mean(striping_ratio))
+            stripe_ampt_dict = pds.DataFrame(np.array(striping_ampt))
+            stripe_ampt_dict.to_csv('%s/%s/striping_ampt_residuals.csv'%(args.prediction_path, experiment))
+            print(experiment, stripe_ampt.mean(axis = 0))
+            stripe_fraction_dict = pds.DataFrame(np.array(striping_fraction))
+            stripe_fraction_dict.to_csv('%s/%s/striping_fraction_residuals.csv'%(args.prediction_path, experiment))
+            print(experiment, stripe_fraction.mean(axis = 0))
+
 
             metric_list, clim_list, persist_list = load_metrics(rotations, 
                                                                 all_dates, 
@@ -3052,6 +3198,11 @@ if __name__ == '__main__':
             with Dataset(filename, 'r') as nc:
                 forecast_30day = nc.variables['swvl1'][0,:,:]
 
+                # q = nc.variables['q_tot'][:]
+                # sp = nc.variables['sp'][:]
+                # e = nc.variables['e'][:]
+                # tp = nc.variables['tp'][:]
+
                 # Obtain the forecast time if it is needed
                 time_30day_pred = nc.variables['time'][:]
                 time_30day_pred = datetime(1900,1,1) + timedelta(hours = time_30day_pred.item())
@@ -3065,6 +3216,40 @@ if __name__ == '__main__':
 
                 # Grid the lon and lat data
                 lon, lat = np.meshgrid(lon, lat)
+
+            # filename = '%s/%s/forecasts/%04d-%02d-%02dT00Z/pred_%04d-%02d-%02dT00Z_%03d.nc'%(args.prediction_path,
+            #                                                                                  experiment,
+            #                                                                                  case_study_start.year,
+            #                                                                                  case_study_start.month,
+            #                                                                                  case_study_start.day,
+            #                                                                                  case_study_start.year,
+            #                                                                                  case_study_start.month,
+            #                                                                                  case_study_start.day,
+            #                                                                                  int(24*(30+1)))
+            # with Dataset(filename, 'r') as nc:
+            #     q_later = nc.variables['q_tot'][:]
+            #     sp_later = nc.variables['sp'][:]
+
+
+            # striping_metrics = stripe_metrics(forecast_30day, lat, latitude_weights)
+            # # Compute residual dry pressure
+            # twc = (0.5 * (q[:,0,...] + q[:,1,...]) * 30000).sum(axis = 1) # Note only two pressure levels are provided (500 and 200 mb), the differnce of which is 300 mb; q is already in units of kg kg^-1 (unitless)
+            # twc_later = (0.5 * (q_later[:,0,...] + q_later[:,1,...]) * 30000).sum(axis = 1)
+            # dp = sp - twc  
+            # dp = np.nanmean(dp * latitude_weights, axis = (-2, -1)) # Weighted mean
+            # dp_later = sp_later - twc_later
+            # dp_later = np.nanmean(dp_later * latitude_weights, axis = (-2, -1)) # Weighted mean
+            # dp_residual = dp_later - dp
+
+            # # Compute residual moisture
+            # twc = (0.5 * (q[:,0,...] + q[:,1,...]) * 6500).sum(axis = 1) # Average thickness in m
+            # twc_later = (0.5 * (q_later[:,0,...] + q_later[:,1,...]) * 6500).sum(axis = 1)
+            # net_moisture = (e - tp) * rho_w / 1000 # Units of kg m^-2
+            # dq = (twc_later - twc) * rho_w # Units of kg m^-2
+            # moisture_residual = dq - net_moisture
+            # moisture_residual = np.nanmean(moisture_residual * latitude_weights, axis = (-2, -1))
+            # print(experiment, " 30 day prediction ", striping_metrics)
+            # print(experiment, " 30 day prediction ", dp_residual, moisture_residual)
 
             # Load in 60 day forecasts
             filename = '%s/%s/forecasts/%04d-%02d-%02dT00Z/pred_%04d-%02d-%02dT00Z_%03d.nc'%(args.prediction_path,
@@ -3080,9 +3265,48 @@ if __name__ == '__main__':
             with Dataset(filename, 'r') as nc:
                 forecast_60day = nc.variables['swvl1'][0,:,:]
 
+                # q = nc.variables['q_tot'][:]
+                # sp = nc.variables['sp'][:]
+                # e = nc.variables['e'][:]
+                # tp = nc.variables['tp'][:]
+
                 # Obtain the forecast time if it is needed
                 time_60day_pred = nc.variables['time'][:]
                 time_60day_pred = datetime(1900,1,1) + timedelta(hours = time_60day_pred.item())
+
+            # filename = '%s/%s/forecasts/%04d-%02d-%02dT00Z/pred_%04d-%02d-%02dT00Z_%03d.nc'%(args.prediction_path,
+            #                                                                                  experiment,
+            #                                                                                  case_study_start.year,
+            #                                                                                  case_study_start.month,
+            #                                                                                  case_study_start.day,
+            #                                                                                  case_study_start.year,
+            #                                                                                  case_study_start.month,
+            #                                                                                  case_study_start.day,
+            #                                                                                  int(24*(60+1)))
+            
+            # with Dataset(filename, 'r') as nc:
+            #     q_later = nc.variables['q_tot'][:]
+            #     sp_later = nc.variables['sp'][:]
+
+            # striping_metrics = stripe_metrics(forecast_60day, lat, latitude_weights)
+            # # Compute residual dry pressure
+            # twc = (0.5 * (q[:,0,...] + q[:,1,...]) * 30000).sum(axis = 1) # Note only two pressure levels are provided (500 and 200 mb), the differnce of which is 300 mb; q is already in units of kg kg^-1 (unitless)
+            # twc_later = (0.5 * (q_later[:,0,...] + q_later[:,1,...]) * 30000).sum(axis = 1)
+            # dp = sp - twc  
+            # dp = np.nanmean(dp * latitude_weights, axis = (-2, -1)) # Weighted mean
+            # dp_later = sp_later - twc_later
+            # dp_later = np.nanmean(dp_later * latitude_weights, axis = (-2, -1)) # Weighted mean
+            # dp_residual = dp_later - dp
+
+            # # Compute residual moisture
+            # twc = (0.5 * (q[:,0,...] + q[:,1,...]) * 6500).sum(axis = 1) # Average thickness in m
+            # twc_later = (0.5 * (q_later[:,0,...] + q_later[:,1,...]) * 6500).sum(axis = 1)
+            # net_moisture = (e - tp) * rho_w / 1000 # Units of kg m^-2
+            # dq = (twc_later - twc) * rho_w # Units of kg m^-2
+            # moisture_residual = dq - net_moisture
+            # moisture_residual = np.nanmean(moisture_residual * latitude_weights, axis = (-2, -1))
+            # print(experiment, " 60 day prediction ", striping_metrics)
+            # print(experiment, " 60 day prediction ", dp_residual, moisture_residual)
 
             # Add data to the plot
                 
